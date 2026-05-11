@@ -63,7 +63,7 @@ export async function GET(
   const candles = values.map((v) => ({
     // intraday: keep full datetime; daily: keep date only
     time: v.datetime.includes(" ") && interval !== "1day" && interval !== "1week"
-      ? v.datetime  // "2024-01-15 09:30:00"
+      ? v.datetime.replace(" ", "T")  // "2024-01-15T09:30:00"
       : v.datetime.split(" ")[0], // "2024-01-15"
     open: parseFloat(v.open),
     high: parseFloat(v.high),
