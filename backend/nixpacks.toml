@@ -1,2 +1,10 @@
+[phases.setup]
+nixPkgs = ["python311", "gcc", "g++", "cmake", "libstdcxx5"]
+
 [phases.install]
-cmds = ["pip install -r requirements-deploy.txt"]
+cmds = [
+  "pip install --upgrade pip",
+  "pip install pystan==2.19.1.1",
+  "pip install prophet>=1.1.5",
+  "pip install -r requirements-deploy.txt"
+]
