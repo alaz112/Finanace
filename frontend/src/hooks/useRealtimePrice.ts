@@ -1,39 +1,35 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { fetchLivePrice } from "@/lib/api";
 
-const BACKEND_WS = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000";
+const POLL_INTERVAL_MS = 15_000; // 15 sn
 
 export function useRealtimePrice(symbol: string) {
   const [price, setPrice] = useState<number | null>(null);
   const [prevPrice, setPrevPrice] = useState<number | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const encoded = encodeURIComponent(symbol);
-    const ws = new WebSocket(`${BACKEND_WS}/ws/prices/${encoded}`);
-    wsRef.current = ws;
+    let cancelled = false;
 
-    ws.onmessage = (evt) => {
-      const data = JSON.parse(evt.data);
-      if (data.price) {
-        setPrevPrice((p) => p);
-        setPrice((prev) => {
-          setPrevPrice(prev);
-          return data.price;
-        });
+    const poll = async () => {
+      try {
+        const data = await fetchLivePrice(symbol);
+        if (!cancelled) {
+          setPrice((prev) => {
+            setPrevPrice(prev);
+            return data.price;
+          });
+        }
+      } catch {
+        // sessizce geç, bir sonraki tick'te tekrar dener
       }
     };
 
-    ws.onerror = () => ws.close();
-
-    // Canlı tutmak için 15sn'de bir ping
-    const ping = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send("ping");
-    }, 15000);
-
+    poll(); // ilk çağrı hemen
+    const id = setInterval(poll, POLL_INTERVAL_MS);
     return () => {
-      clearInterval(ping);
-      ws.close();
+      cancelled = true;
+      clearInterval(id);
     };
   }, [symbol]);
 

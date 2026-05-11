@@ -1,15 +1,10 @@
-// Twelve Data API'sine istek atan yardımcı fonksiyonlar
-
-const BACKEND = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
 export async function fetchLivePrice(symbol: string): Promise<{
   symbol: string;
   price: number;
   timestamp: string;
-  source: string;
 }> {
-  const res = await fetch(`${BACKEND}/api/v1/assets/${encodeURIComponent(symbol)}`, {
-    next: { revalidate: 30 },
+  const res = await fetch(`/api/price/${encodeURIComponent(symbol)}`, {
+    cache: "no-store",
   });
   if (!res.ok) throw new Error(`Fiyat çekilemedi: ${symbol}`);
   return res.json();
@@ -21,10 +16,7 @@ export async function fetchHistory(
   outputsize = 90
 ): Promise<{ time: string; open: number; high: number; low: number; close: number; volume: number }[]> {
   const params = new URLSearchParams({ interval, outputsize: String(outputsize) });
-  const res = await fetch(
-    `${BACKEND}/api/v1/prices/history/${encodeURIComponent(symbol)}?${params}`,
-    { next: { revalidate: 300 } }
-  );
+  const res = await fetch(`/api/history/${encodeURIComponent(symbol)}?${params}`);
   if (!res.ok) throw new Error(`Geçmiş veri çekilemedi: ${symbol}`);
   const json = await res.json();
   return json.data;
