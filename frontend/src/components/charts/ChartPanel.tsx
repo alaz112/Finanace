@@ -49,6 +49,8 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
   useEffect(() => {
     if (!chartRef.current) return;
 
+    const containerWidth = chartRef.current.getBoundingClientRect().width || chartRef.current.offsetWidth || 600;
+
     const chart = createChart(chartRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "#FFFFFF" },
@@ -66,7 +68,8 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
       },
       rightPriceScale: { borderColor: "rgba(0,0,0,0.06)" },
       timeScale: { borderColor: "rgba(0,0,0,0.06)", timeVisible: true },
-      width: chartRef.current.clientWidth,
+      autoSize: true,
+      width: containerWidth,
       height: 400,
     });
 
@@ -96,7 +99,8 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
           }))
         );
 
-        chart.timeScale().fitContent();
+        // fitContent'i bir sonraki frame'e ertele (layout hesaplanmış olsun)
+        requestAnimationFrame(() => chart.timeScale().fitContent());
       })
       .catch((err) => {
         setError("Veri yüklenemedi. API limiti aşılmış olabilir.");
