@@ -15,8 +15,7 @@ export async function GET(
   const outputsize = url.searchParams.get("outputsize") ?? "90";
 
   const res = await fetch(
-    `${BASE}/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${API_KEY}`,
-    { next: { revalidate: 300 } }
+    `${BASE}/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${API_KEY}`
   );
 
   if (!res.ok) {

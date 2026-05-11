@@ -11,8 +11,7 @@ export async function GET(
   const sym = decodeURIComponent(symbol);
 
   const res = await fetch(
-    `${BASE}/price?symbol=${encodeURIComponent(sym)}&apikey=${API_KEY}`,
-    { next: { revalidate: 0 } }
+    `${BASE}/price?symbol=${encodeURIComponent(sym)}&apikey=${API_KEY}`
   );
 
   if (!res.ok) {
