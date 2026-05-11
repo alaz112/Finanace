@@ -14,18 +14,40 @@ export async function GET(
   const interval = url.searchParams.get("interval") ?? "1day";
   const outputsize = url.searchParams.get("outputsize") ?? "90";
 
-  const res = await fetch(
-    `${BASE}/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${API_KEY}`
-  );
-
-  if (!res.ok) {
-    return Response.json({ error: "upstream error" }, { status: 502 });
+  let res: Response;
+  try {
+    res = await fetch(
+      `${BASE}/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${API_KEY}`
+    );
+  } catch (e: any) {
+    return Response.json(
+      { error: "fetch_failed", detail: e?.message ?? "network error", stage: "twelve_data_fetch" },
+      { status: 502 }
+    );
   }
 
-  const data = await res.json();
+  if (!res.ok) {
+    return Response.json(
+      { error: "upstream_error", status: res.status, stage: "twelve_data_fetch" },
+      { status: 502 }
+    );
+  }
+
+  let data: any;
+  try {
+    data = await res.json();
+  } catch (e: any) {
+    return Response.json(
+      { error: "parse_failed", detail: e?.message, stage: "twelve_data_json" },
+      { status: 502 }
+    );
+  }
 
   if (data.status === "error") {
-    return Response.json({ error: data.message }, { status: 400 });
+    return Response.json(
+      { error: data.message, code: data.code, stage: "twelve_data_api" },
+      { status: 400 }
+    );
   }
 
   // Twelve Data returns newest first, reverse for chart
@@ -60,3 +82,5 @@ export async function GET(
 
   return Response.json({ symbol: sym, interval, data: deduped });
 }
+
+export const dynamic = "force-dynamic";

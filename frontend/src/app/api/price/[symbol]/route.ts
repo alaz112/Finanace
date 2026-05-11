@@ -11,6 +11,10 @@ export async function GET(
   const sym = decodeURIComponent(symbol);
 
   try {
+    if (!API_KEY) {
+      return Response.json({ error: "env_missing", detail: "TWELVE_DATA_API_KEY not set" }, { status: 500 });
+    }
+
     const res = await fetch(
       `${BASE}/price?symbol=${encodeURIComponent(sym)}&apikey=${API_KEY}`
     );
