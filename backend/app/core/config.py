@@ -22,9 +22,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     CACHE_TTL_SECONDS: int = 30  # Fiyat cache süresi (saniye)
 
-    # Alpha Vantage
-    ALPHA_VANTAGE_API_KEY: str
-    ALPHA_VANTAGE_BASE_URL: str = "https://www.alphavantage.co/query"
+    # Twelve Data
+    TWELVE_DATA_API_KEY: str
+    TWELVE_DATA_BASE_URL: str = "https://api.twelvedata.com"
 
     # CORS
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]

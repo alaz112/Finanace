@@ -54,10 +54,10 @@ CREATE TABLE assets (
 
 -- Temel varlıkları seed et
 INSERT INTO assets (symbol, name, asset_type, base_currency, quote_currency, decimal_places) VALUES
-    ('XAUUSD', 'Gold / US Dollar (Troy Ounce)', 'PRECIOUS_METAL', 'XAU', 'USD', 2),
-    ('USDCHF', 'US Dollar / Swiss Franc',       'FOREX',          'USD', 'CHF', 4),
-    ('EURCHF', 'Euro / Swiss Franc',             'FOREX',          'EUR', 'CHF', 4),
-    ('XAUCHF', 'Gold / Swiss Franc',             'PRECIOUS_METAL', 'XAU', 'CHF', 2);
+    ('XAU/USD', 'Gold / US Dollar (Troy Ounce)', 'PRECIOUS_METAL', 'XAU', 'USD', 2),
+    ('USD/CHF', 'US Dollar / Swiss Franc',        'FOREX',          'USD', 'CHF', 4),
+    ('MRVL',    'Marvell Technology Inc.',         'EQUITY',         'USD', 'USD', 2),
+    ('AVGO',    'Broadcom Inc.',                   'EQUITY',         'USD', 'USD', 2);
 
 -- =============================================================================
 -- PORTFOLIOS
@@ -141,8 +141,8 @@ SELECT create_hypertable(
     if_not_exists       => TRUE
 );
 
--- Sıkıştırma politikası: 30 günden eski veriler sıkıştırılır
-SELECT add_compression_policy('price_history', INTERVAL '30 days');
+-- Not: Sıkıştırma politikası columnstore aktif edilince eklenecek
+-- SELECT add_compression_policy('price_history', INTERVAL '30 days');
 
 -- Veri saklama politikası: 5 yıldan eski veriler silinir (opsiyonel)
 -- SELECT add_retention_policy('price_history', INTERVAL '5 years');
