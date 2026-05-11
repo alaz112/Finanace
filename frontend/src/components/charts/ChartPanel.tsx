@@ -34,13 +34,8 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
         vertLine: { color: "rgba(0,0,0,0.2)", width: 1 },
         horzLine: { color: "rgba(0,0,0,0.2)", width: 1 },
       },
-      rightPriceScale: {
-        borderColor: "rgba(0,0,0,0.06)",
-      },
-      timeScale: {
-        borderColor: "rgba(0,0,0,0.06)",
-        timeVisible: true,
-      },
+      rightPriceScale: { borderColor: "rgba(0,0,0,0.06)" },
+      timeScale: { borderColor: "rgba(0,0,0,0.06)", timeVisible: true },
       width: chartRef.current.clientWidth,
       height: 440,
     });
@@ -84,9 +79,7 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
 
   return (
     <div className="bg-white rounded-apple p-5 shadow-apple">
-      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
-        {/* Sembol seçici */}
         <div className="flex gap-1 bg-apple-bg rounded-[10px] p-1">
           {symbols.map((s) => (
             <button
@@ -103,8 +96,6 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
             </button>
           ))}
         </div>
-
-        {/* Interval seçici */}
         <div className="flex gap-1 ml-auto">
           {INTERVALS.map((iv) => (
             <button
@@ -121,8 +112,6 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
           ))}
         </div>
       </div>
-
-      {/* Chart */}
       <div className="relative rounded-[10px] overflow-hidden" style={{ background: "#FAFAFA" }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
@@ -130,69 +119,6 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
               className="w-7 h-7 rounded-full border-2 border-t-transparent animate-spin"
               style={{ borderColor: "#007AFF", borderTopColor: "transparent" }}
             />
-          </div>
-        )}
-        <div ref={chartRef} className="w-full" />
-      </div>
-    </div>
-  );
-}
-
-    const handleResize = () => {
-      if (chartRef.current) chart.applyOptions({ width: chartRef.current.clientWidth });
-    };
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
-  }, [symbol, interval]);
-
-  return (
-    <div className="bg-fin-white border border-fin-border rounded-2xl p-6 shadow-card">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        {/* Sembol seçici */}
-        <div className="flex gap-1 bg-fin-bg rounded-xl p-1">
-          {symbols.map((s) => (
-            <button
-              key={s}
-              onClick={() => setSymbol(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                symbol === s
-                  ? "bg-fin-white shadow-card text-fin-text"
-                  : "text-fin-muted hover:text-fin-text"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
-        {/* Interval seçici */}
-        <div className="flex gap-1 ml-auto">
-          {INTERVALS.map((iv) => (
-            <button
-              key={iv}
-              onClick={() => setInterval(iv)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                interval === iv
-                  ? "bg-fin-blue text-white"
-                  : "text-fin-muted hover:text-fin-text hover:bg-fin-bg"
-              }`}
-            >
-              {iv}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Chart */}
-      <div className="relative rounded-xl overflow-hidden border border-fin-border">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
-            <div className="w-6 h-6 border-2 border-fin-blue border-t-transparent rounded-full animate-spin" />
           </div>
         )}
         <div ref={chartRef} className="w-full" />
