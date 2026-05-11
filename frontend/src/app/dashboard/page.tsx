@@ -9,13 +9,7 @@ export default function Dashboard() {
       {/* Nav — macOS menu bar feel */}
       <nav className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl border-b border-apple-separator px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-apple-blue flex items-center justify-center shadow-sm">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M7 1L10 5H4L7 1Z" fill="white" />
-              <path d="M2 8h10M5 8v4M9 8v4" stroke="white" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </div>
-          <span className="text-[15px] font-semibold tracking-tight text-apple-label">Finance</span>
+          <img src="/kurtlogo.png" alt="Logo" className="h-8 w-auto" />
         </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-apple-greenBg">

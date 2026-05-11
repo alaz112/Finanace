@@ -40,7 +40,10 @@ export async function GET(
   }> = (data.values ?? []).reverse();
 
   const candles = values.map((v) => ({
-    time: v.datetime.split(" ")[0], // "2024-01-15 09:30:00" → "2024-01-15"
+    // intraday: keep full datetime; daily: keep date only
+    time: v.datetime.includes(" ") && interval !== "1day" && interval !== "1week"
+      ? v.datetime  // "2024-01-15 09:30:00"
+      : v.datetime.split(" ")[0], // "2024-01-15"
     open: parseFloat(v.open),
     high: parseFloat(v.high),
     low: parseFloat(v.low),
@@ -48,5 +51,13 @@ export async function GET(
     volume: parseFloat(v.volume ?? "0"),
   }));
 
-  return Response.json({ symbol: sym, interval, data: candles });
+  // Remove any duplicate timestamps (safety)
+  const seen = new Set<string>();
+  const deduped = candles.filter((c) => {
+    if (seen.has(c.time)) return false;
+    seen.add(c.time);
+    return true;
+  });
+
+  return Response.json({ symbol: sym, interval, data: deduped });
 }
