@@ -10,23 +10,27 @@ export async function GET(
   const { symbol } = await params;
   const sym = decodeURIComponent(symbol);
 
-  const res = await fetch(
-    `${BASE}/price?symbol=${encodeURIComponent(sym)}&apikey=${API_KEY}`
-  );
+  try {
+    const res = await fetch(
+      `${BASE}/price?symbol=${encodeURIComponent(sym)}&apikey=${API_KEY}`
+    );
 
-  if (!res.ok) {
-    return Response.json({ error: "upstream error" }, { status: 502 });
+    const data = await res.json();
+
+    if (data.status === "error") {
+      return Response.json({ error: data.message, code: data.code }, { status: 400 });
+    }
+
+    if (!data.price) {
+      return Response.json({ error: "no price field", raw: data }, { status: 502 });
+    }
+
+    return Response.json({
+      symbol: sym,
+      price: parseFloat(data.price),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    return Response.json({ error: e?.message ?? "unknown error" }, { status: 500 });
   }
-
-  const data = await res.json();
-
-  if (data.status === "error") {
-    return Response.json({ error: data.message }, { status: 400 });
-  }
-
-  return Response.json({
-    symbol: sym,
-    price: parseFloat(data.price),
-    timestamp: new Date().toISOString(),
-  });
 }

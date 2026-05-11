@@ -11,6 +11,22 @@ interface Props {
   symbols: string[];
 }
 
+interface ForecastPrediction {
+  date: string;
+  price: number;
+  lower: number;
+  upper: number;
+  change_pct: number;
+}
+
+interface ForecastData {
+  symbol: string;
+  last_close: number;
+  predictions: ForecastPrediction[];
+  mae: number | null;
+  training_days: number;
+}
+
 const SYMBOL_META: Record<string, { name: string; color: string }> = {
   "XAU/USD": { name: "Altın", color: "#FF9500" },
   "USD/CHF": { name: "Swiss Franc", color: "#FF3B30" },
@@ -26,6 +42,9 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSummary, setShowSummary] = useState(false);
+  const [forecast, setForecast] = useState<ForecastData | null>(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -62,6 +81,8 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
 
     setLoading(true);
     setError(null);
+    setForecast(null);
+    setForecastError(null);
 
     fetchHistory(symbol, interval, 200)
       .then((data) => {
@@ -134,18 +155,47 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
           ))}
         </div>
 
-        {/* Günlük Özet butonu */}
-        <button
-          onClick={() => setShowSummary(true)}
-          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-[12px] font-semibold"
-          style={{ background: "#F5F5F7", color: "#1D1D1F" }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 8v4l3 3" />
-          </svg>
-          Günlük Özet
-        </button>
+        {/* Butonlar */}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => {
+              setForecast(null);
+              setForecastError(null);
+              setForecastLoading(true);
+              fetch(`/api/forecast/${encodeURIComponent(symbol)}?days=3`)
+                .then(r => r.json())
+                .then(d => {
+                  if (d.error) throw new Error(d.error);
+                  setForecast(d);
+                })
+                .catch(e => setForecastError(e.message))
+                .finally(() => setForecastLoading(false));
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-[12px] font-semibold transition-all"
+            style={{ background: forecastLoading ? "#E5E5EA" : "#5856D6", color: "#FFFFFF" }}
+          >
+            {forecastLoading ? (
+              <div className="w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: "#fff", borderTopColor: "transparent" }} />
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M3 18l5-5 4 4 9-9" />
+              </svg>
+            )}
+            3 Günlük Tahmin
+          </button>
+
+          <button
+            onClick={() => setShowSummary(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-[12px] font-semibold"
+            style={{ background: "#F5F5F7", color: "#1D1D1F" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4l3 3" />
+            </svg>
+            Günlük Özet
+          </button>
+        </div>
       </div>
 
       {/* Grafik alanı */}
@@ -168,6 +218,49 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
         )}
         <div ref={chartRef} className="w-full" />
       </div>
+
+      {/* Forecast Kartları */}
+      {forecastError && (
+        <div className="mt-4 p-3 rounded-[12px] text-[13px]" style={{ background: "#FFECEC", color: "#FF3B30" }}>
+          {forecastError}
+        </div>
+      )}
+      {forecast && !forecastError && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[12px] font-semibold" style={{ color: "#6E6E73" }}>
+              AI TAHMİN · Prophet Model · {forecast.training_days} gün verisi
+              {forecast.mae != null && ` · MAE ${forecast.mae.toFixed(2)}`}
+            </p>
+            <button onClick={() => setForecast(null)} className="text-[11px]" style={{ color: "#AEAEB2" }}>Kapat ✕</button>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {forecast.predictions.map((p) => (
+              <div
+                key={p.date}
+                className="rounded-[14px] p-3"
+                style={{
+                  background: p.change_pct >= 0 ? "#E3F9E9" : "#FFECEC",
+                  border: `0.5px solid ${p.change_pct >= 0 ? "#34C75930" : "#FF3B3030"}`
+                }}
+              >
+                <p className="text-[11px] font-medium mb-1" style={{ color: "#6E6E73" }}>
+                  {new Date(p.date + "T12:00:00").toLocaleDateString("tr-TR", { weekday: "short", day: "numeric", month: "short" })}
+                </p>
+                <p className="text-[16px] font-bold" style={{ color: "#1D1D1F" }}>
+                  {p.price.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[12px] font-semibold mt-0.5" style={{ color: p.change_pct >= 0 ? "#34C759" : "#FF3B30" }}>
+                  {p.change_pct >= 0 ? "+" : ""}{p.change_pct.toFixed(2)}%
+                </p>
+                <p className="text-[10px] mt-1" style={{ color: "#AEAEB2" }}>
+                  {p.lower.toLocaleString("en-US", { maximumFractionDigits: 2 })} – {p.upper.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Günlük Özet Modal */}
       {showSummary && (
