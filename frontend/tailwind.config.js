@@ -4,19 +4,30 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        brand: {
-          bg:      "#0D1117",
-          surface: "#161B22",
-          border:  "#30363D",
-          green:   "#3FB950",
-          red:     "#F85149",
-          gold:    "#D4A017",
-          text:    "#E6EDF3",
-          muted:   "#8B949E",
+        fin: {
+          bg:       "#F7F8FA",
+          white:    "#FFFFFF",
+          border:   "#E8EBF0",
+          text:     "#1A1D23",
+          muted:    "#6B7280",
+          subtle:   "#9CA3AF",
+          green:    "#00C076",
+          greenBg:  "#E6FAF3",
+          red:      "#FF3B30",
+          redBg:    "#FFF0EF",
+          blue:     "#2563EB",
+          blueBg:   "#EFF6FF",
+          gold:     "#F59E0B",
+          goldBg:   "#FFFBEB",
         },
       },
+      boxShadow: {
+        card: "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+        "card-hover": "0 4px 12px rgba(0,0,0,0.10), 0 2px 4px rgba(0,0,0,0.06)",
+      },
       fontFamily: {
-        mono: ["JetBrains Mono", "monospace"],
+        sans: ["Inter", "-apple-system", "sans-serif"],
+        mono: ["SF Mono", "Fira Code", "monospace"],
       },
     },
   },
