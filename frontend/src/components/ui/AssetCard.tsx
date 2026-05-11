@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import React, { useState } from "react";
 import { useRealtimePrice } from "@/hooks/useRealtimePrice";
 import AnalysisModal from "@/components/ui/AnalysisModal";
 
@@ -49,7 +49,7 @@ const META: Record<string, {
   ticker: string;
   color: string;
   bg: string;
-  Icon: () => JSX.Element;
+  Icon: () => React.ReactElement;
 }> = {
   "XAU/USD": { name: "Altın",       ticker: "XAU/USD", color: "#FF9500", bg: "#FFF3DC", Icon: IconGold },
   "USD/CHF": { name: "Swiss Franc", ticker: "USD/CHF", color: "#FF3B30", bg: "#FFECEC", Icon: IconSwissCross },
