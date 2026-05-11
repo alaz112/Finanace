@@ -1,7 +1,5 @@
 export const runtime = "edge";
 
-const OPENAI_KEY = process.env.OPENAI_API_KEY ?? "";
-
 const NEWS_QUERIES: Record<string, string> = {
   "XAU/USD": "gold price XAU USD market",
   "USD/CHF": "USD CHF Swiss franc forex",
@@ -41,6 +39,7 @@ export async function GET(
 ) {
   const { symbol } = await params;
   const sym = decodeURIComponent(symbol);
+  const OPENAI_KEY = process.env.OPENAI_API_KEY ?? "";
   const url = new URL(req.url);
   const date = url.searchParams.get("date") ?? "";
   const change = parseFloat(url.searchParams.get("change") ?? "0");

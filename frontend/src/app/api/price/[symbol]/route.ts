@@ -1,6 +1,5 @@
 export const runtime = "edge";
 
-const API_KEY = process.env.TWELVE_DATA_API_KEY ?? "";
 const BASE = "https://api.twelvedata.com";
 
 export async function GET(
@@ -9,6 +8,7 @@ export async function GET(
 ) {
   const { symbol } = await params;
   const sym = decodeURIComponent(symbol);
+  const API_KEY = process.env.TWELVE_DATA_API_KEY ?? "";
 
   try {
     if (!API_KEY) {

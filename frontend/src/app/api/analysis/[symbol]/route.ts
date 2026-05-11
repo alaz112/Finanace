@@ -1,7 +1,5 @@
 export const runtime = "edge";
 
-const TD_KEY = process.env.TWELVE_DATA_API_KEY ?? "";
-const OPENAI_KEY = process.env.OPENAI_API_KEY ?? "";
 const TD_BASE = "https://api.twelvedata.com";
 
 const NEWS_QUERIES: Record<string, string> = {
@@ -43,6 +41,8 @@ export async function GET(
 ) {
   const { symbol } = await params;
   const sym = decodeURIComponent(symbol);
+  const TD_KEY = process.env.TWELVE_DATA_API_KEY ?? "";
+  const OPENAI_KEY = process.env.OPENAI_API_KEY ?? "";
 
   if (!TD_KEY) {
     return Response.json({ error: "env_missing", detail: "TWELVE_DATA_API_KEY not set" }, { status: 500 });
