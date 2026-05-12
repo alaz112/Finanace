@@ -21,7 +21,7 @@ TD_KEY = os.getenv("TWELVE_DATA_API_KEY", "dbe4071a53634adfb69feab61ef7dfb1")
 TD_BASE = "https://api.twelvedata.com"
 DB_PATH = os.path.join(os.path.dirname(__file__), "finance_cache.db")
 
-SYMBOLS = ["XAU/USD", "USD/CHF", "MRVL", "AVGO"]
+SYMBOLS = ["XAU/USD", "USD/CHF", "MRVL", "AVGO", "ASELS", "YEOTK", "KONTR"]
 
 PRICE_TTL = 60        # saniye
 HISTORY_TTL = 300     # saniye
@@ -106,10 +106,55 @@ async def fetch_history_from_td(symbol: str, interval: str, outputsize: int) -> 
             })
     return result
 
+# ─── Startup cache warm-up ──────────────────────────────────────────────────
+# (symbol, interval, outputsize)
+WARM_JOBS = [
+    ("1day",  365),   # 1 yıl günlük
+    ("1h",    720),   # 1 ay saatlik  (30 × 24)
+    ("1week", 104),   # ~2 yıl haftalık (bonus)
+]
+
+async def warm_cache():
+    """Sunucu başlayınca 4 sembol × 3 interval = 12 istek → SQLite cache doldur."""
+    import json
+    await asyncio.sleep(3)          # FastAPI tamamen ayağa kalksın
+    now = int(time.time())
+    conn = get_db()
+    try:
+        for symbol in SYMBOLS:
+            for interval, outputsize in WARM_JOBS:
+                try:
+                    # Cache'te taze veri varsa atla
+                    row = conn.execute(
+                        "SELECT fetched_at FROM history_cache WHERE symbol=? AND interval=?",
+                        (symbol, interval)
+                    ).fetchone()
+                    if row and (now - row["fetched_at"]) < HISTORY_TTL:
+                        print(f"[warm_cache] {symbol} {interval} — cache taze, atlandı")
+                        continue
+
+                    print(f"[warm_cache] {symbol} {interval} outputsize={outputsize} çekiliyor…")
+                    data = await fetch_history_from_td(symbol, interval, outputsize)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO history_cache(symbol,interval,data_json,fetched_at) "
+                        "VALUES(?,?,?,?)",
+                        (symbol, interval, json.dumps(data), int(time.time()))
+                    )
+                    conn.commit()
+                    print(f"[warm_cache] {symbol} {interval} — {len(data)} mum kaydedildi ✓")
+                    await asyncio.sleep(1.5)   # ~40 req/dk — Grow plan 55 req/dk limitinin altında
+                except Exception as e:
+                    print(f"[warm_cache] {symbol} {interval} HATA: {e}")
+    finally:
+        conn.close()
+    print("[warm_cache] tamamlandı")
+
+
 # ─── Lifespan ───────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    asyncio.create_task(warm_cache())   # arka planda başlat, sunucuyu bloklamaz
     yield
 
 # ─── App ────────────────────────────────────────────────────────────────────

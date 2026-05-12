@@ -32,6 +32,9 @@ const SYMBOL_META: Record<string, { name: string; color: string }> = {
   "USD/CHF": { name: "Swiss Franc", color: "#FF3B30" },
   MRVL: { name: "Marvell", color: "#5856D6" },
   AVGO: { name: "Broadcom", color: "#34C759" },
+  ASELS: { name: "Aselsan", color: "#0A84FF" },
+  YEOTK: { name: "Yeo Teknoloji", color: "#FF9F0A" },
+  KONTR: { name: "Kontrolmatik", color: "#30D158" },
 };
 
 export default function ChartPanel({ defaultSymbol, symbols }: Props) {
@@ -67,7 +70,7 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
         horzLine: { color: "rgba(0,0,0,0.2)", width: 1 },
       },
       rightPriceScale: { borderColor: "rgba(0,0,0,0.06)" },
-      timeScale: { borderColor: "rgba(0,0,0,0.06)", timeVisible: true },
+      timeScale: { borderColor: "rgba(0,0,0,0.06)", timeVisible: true, secondsVisible: false },
       autoSize: true,
       width: containerWidth,
       height: 400,

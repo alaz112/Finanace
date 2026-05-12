@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import AssetCard from "@/components/ui/AssetCard";
 import ChartPanel from "@/components/charts/ChartPanel";
 
-const SYMBOLS = ["XAU/USD", "USD/CHF", "MRVL", "AVGO"];
+const SYMBOLS = ["XAU/USD", "USD/CHF", "MRVL", "AVGO", "ASELS", "YEOTK", "KONTR"];
 
 export default function Dashboard() {
   const router = useRouter();

@@ -43,6 +43,32 @@ function IconSignal() {
   );
 }
 
+function IconShield() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3L4 7v6c0 4.4 3.4 8.5 8 9.5 4.6-1 8-5.1 8-9.5V7l-8-4z"/>
+      <path d="M9 12l2 2 4-4"/>
+    </svg>
+  );
+}
+
+function IconSun() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+    </svg>
+  );
+}
+
+function IconBolt() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2L4.5 13.5H12L11 22l8.5-11.5H12L13 2z"/>
+    </svg>
+  );
+}
+
 /* ── Metadata ───────────────────────────────────────────────── */
 const META: Record<string, {
   name: string;
@@ -55,6 +81,9 @@ const META: Record<string, {
   "USD/CHF": { name: "Swiss Franc", ticker: "USD/CHF", color: "#FF3B30", bg: "#FFECEC", Icon: IconSwissCross },
   MRVL:      { name: "Marvell",     ticker: "MRVL",    color: "#5856D6", bg: "#EEECFF", Icon: IconChip },
   AVGO:      { name: "Broadcom",    ticker: "AVGO",    color: "#34C759", bg: "#E3F9E9", Icon: IconSignal },
+  ASELS:     { name: "Aselsan",     ticker: "ASELS",   color: "#0A84FF", bg: "#E5F3FF", Icon: IconShield },
+  YEOTK:     { name: "Yeo Teknoloji", ticker: "YEOTK", color: "#FF9F0A", bg: "#FFF4E0", Icon: IconSun },
+  KONTR:     { name: "Kontrolmatik", ticker: "KONTR",  color: "#30D158", bg: "#E2F9EB", Icon: IconBolt },
 };
 
 /* ── Kart ───────────────────────────────────────────────────── */

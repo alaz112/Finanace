@@ -60,11 +60,14 @@ export async function GET(
     volume: string;
   }> = (data.values ?? []).reverse();
 
+  const isIntraday = interval !== "1day" && interval !== "1week";
+
   const candles = values.map((v) => ({
-    // intraday: keep full datetime; daily: keep date only
-    time: v.datetime.includes(" ") && interval !== "1day" && interval !== "1week"
-      ? v.datetime.replace(" ", "T")  // "2024-01-15T09:30:00"
-      : v.datetime.split(" ")[0], // "2024-01-15"
+    // intraday: convert to unix timestamp (seconds) treating exchange-local time as UTC
+    // daily/weekly: keep "YYYY-MM-DD" string (BusinessDay format for lightweight-charts)
+    time: isIntraday
+      ? Math.floor(new Date(v.datetime.replace(" ", "T") + "Z").getTime() / 1000)
+      : v.datetime.split(" ")[0],
     open: parseFloat(v.open),
     high: parseFloat(v.high),
     low: parseFloat(v.low),
