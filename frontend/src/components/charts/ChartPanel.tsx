@@ -4,7 +4,14 @@ import { createChart, ColorType, CandlestickSeries, LineSeries, AreaSeries } fro
 import { fetchHistory } from "@/lib/api";
 import AnalysisModal from "@/components/ui/AnalysisModal";
 
-const INTERVALS = ["1min", "5min", "15min", "1h", "1day", "1week"];
+type Period = "1H" | "1D" | "1W" | "1M" | "1Y";
+const PERIOD_CONFIG: Record<Period, { interval: string; outputsize: number }> = {
+  "1H": { interval: "5min",  outputsize: 12  },
+  "1D": { interval: "15min", outputsize: 96  },
+  "1W": { interval: "1h",    outputsize: 168 },
+  "1M": { interval: "1h",    outputsize: 720 },
+  "1Y": { interval: "1day",  outputsize: 365 },
+};
 
 interface Props {
   defaultSymbol: string;
@@ -44,7 +51,7 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
   const forecastSeriesRef = useRef<any[]>([]);
 
   const [symbol, setSymbol] = useState(defaultSymbol);
-  const [interval, setInterval] = useState("1day");
+  const [period, setPeriod] = useState<Period>("1Y");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSummary, setShowSummary] = useState(false);
@@ -54,6 +61,11 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
 
   useEffect(() => {
     if (!chartRef.current) return;
+
+    const cfg = PERIOD_CONFIG[period];
+    const isIntraday = cfg.interval !== "1day" && cfg.interval !== "1week";
+    const toChartTime = (t: string): string | number =>
+      isIntraday ? Math.floor(new Date(t.replace(" ", "T") + "Z").getTime() / 1000) : t;
 
     const containerWidth = chartRef.current.getBoundingClientRect().width || chartRef.current.offsetWidth || 600;
 
@@ -77,7 +89,7 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
         horzLine: { color: "rgba(0,0,0,0.2)", width: 1 },
       },
       rightPriceScale: { borderColor: "rgba(0,0,0,0.06)" },
-      timeScale: { borderColor: "rgba(0,0,0,0.06)", timeVisible: true, secondsVisible: false },
+      timeScale: { borderColor: "rgba(0,0,0,0.06)", timeVisible: isIntraday, secondsVisible: false },
       autoSize: true,
       width: containerWidth,
       height: 400,
@@ -99,10 +111,10 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
     setForecast(null);
     setForecastError(null);
 
-    fetchHistory(symbol, interval, 200)
+    fetchHistory(symbol, cfg.interval, cfg.outputsize)
       .then((data) => {
         const mapped = data.map((d) => ({
-          time: d.time as any,
+          time: toChartTime(d.time) as any,
           open: d.open,
           high: d.high,
           low: d.low,
@@ -135,7 +147,7 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
       lastCandleTimeRef.current = null;
       forecastSeriesRef.current = [];
     };
-  }, [symbol, interval]);
+  }, [symbol, period]);
 
   // Forecast eğrisini chart üstüne çiz
   useEffect(() => {
@@ -151,7 +163,7 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
 
     if (!forecast || !chart || !lastCandleTimeRef.current) return;
 
-    const isIntraday = interval !== "1day" && interval !== "1week";
+    const isIntraday = PERIOD_CONFIG[period].interval !== "1day" && PERIOD_CONFIG[period].interval !== "1week";
     const toTime = (dateStr: string) =>
       isIntraday
         ? Math.floor(new Date(dateStr + "T12:00:00Z").getTime() / 1000)
@@ -200,7 +212,7 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
 
     forecastSeriesRef.current = [upperSeries, lowerSeries, lineSeries];
     requestAnimationFrame(() => chart.timeScale().fitContent());
-  }, [forecast, interval]);
+  }, [forecast, period]);
 
   const meta = SYMBOL_META[symbol] ?? { name: symbol, color: "#007AFF" };
 
@@ -225,18 +237,18 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
           ))}
         </div>
 
-        <div className="flex gap-1">
-          {INTERVALS.map((iv) => (
+        <div className="flex gap-1 bg-apple-bg rounded-[10px] p-1">
+          {(Object.keys(PERIOD_CONFIG) as Period[]).map((p) => (
             <button
-              key={iv}
-              onClick={() => setInterval(iv)}
+              key={p}
+              onClick={() => setPeriod(p)}
               className="px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-all"
               style={{
-                background: interval === iv ? "#007AFF" : "transparent",
-                color: interval === iv ? "#FFFFFF" : "#6E6E73",
+                background: period === p ? "#007AFF" : "transparent",
+                color: period === p ? "#FFFFFF" : "#6E6E73",
               }}
             >
-              {iv}
+              {p}
             </button>
           ))}
         </div>

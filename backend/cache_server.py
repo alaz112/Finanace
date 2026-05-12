@@ -80,6 +80,22 @@ def init_db():
         """
         CREATE INDEX IF NOT EXISTS idx_price_history_symbol
             ON price_history(symbol, recorded_at)""",
+        """
+        CREATE TABLE IF NOT EXISTS ohlcv_history (
+            id          BIGSERIAL PRIMARY KEY,
+            symbol      TEXT NOT NULL,
+            interval    TEXT NOT NULL,
+            dt          TEXT NOT NULL,
+            open        DOUBLE PRECISION,
+            high        DOUBLE PRECISION,
+            low         DOUBLE PRECISION,
+            close       DOUBLE PRECISION NOT NULL,
+            volume      DOUBLE PRECISION,
+            UNIQUE(symbol, interval, dt)
+        )""",
+        """
+        CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol_interval_dt
+            ON ohlcv_history(symbol, interval, dt)""",
     ]
     for stmt in stmts:
         conn.execute(stmt)
@@ -123,10 +139,11 @@ async def fetch_history_from_td(symbol: str, interval: str, outputsize: int) -> 
             seen.add(key)
             result.append({
                 "time": key,
-                "open":  float(v["open"]),
-                "high":  float(v["high"]),
-                "low":   float(v["low"]),
-                "close": float(v["close"]),
+                "open":   float(v["open"]),
+                "high":   float(v["high"]),
+                "low":    float(v["low"]),
+                "close":  float(v["close"]),
+                "volume": float(v.get("volume") or 0),
             })
     return result
 
@@ -189,7 +206,7 @@ app = FastAPI(title="Finance Cache Server", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -663,3 +680,67 @@ async def db_query(request: Request):
         raise HTTPException(status_code=400, detail=str(exc))
     finally:
         conn.close()
+
+
+# ─── Tarihsel Veri Yükleme ──────────────────────────────────────────────────
+
+BULK_SYMBOLS = SYMBOLS + ["SPX"]   # SPX = S&P 500 benchmark
+BULK_JOBS = [
+    ("1day",  5000),   # ~14 yıl günlük veri
+    ("1week", 500),    # ~10 yıl haftalık veri
+]
+
+
+@app.post("/api/history/load-db")
+async def load_history_to_db():
+    """
+    Tüm semboller için tarihsel OHLCV verilerini ohlcv_history tablosuna yükler.
+    Her sembol × interval kombinasyonu için Twelve Data'dan maksimum veri çeker.
+    """
+    results: dict = {}
+    errors: list = []
+
+    for symbol in BULK_SYMBOLS:
+        results[symbol] = {}
+        for interval, outputsize in BULK_JOBS:
+            try:
+                data = await fetch_history_from_td(symbol, interval, outputsize)
+                conn = get_db()
+                try:
+                    count = 0
+                    for bar in data:
+                        conn.execute(
+                            """
+                            INSERT INTO ohlcv_history(symbol, interval, dt, open, high, low, close, volume)
+                            VALUES(%s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (symbol, interval, dt) DO NOTHING
+                            """,
+                            (symbol, interval, bar["time"],
+                             bar.get("open"), bar.get("high"), bar.get("low"),
+                             bar["close"], bar.get("volume", 0)),
+                        )
+                        count += 1
+                    conn.commit()
+                    results[symbol][interval] = {"saved": count, "total": len(data)}
+                    print(f"[load-db] {symbol} {interval}: {count} bar kaydedildi")
+                finally:
+                    conn.close()
+                await asyncio.sleep(1.5)   # Rate limit koruması (~40 req/dk)
+            except Exception as e:
+                msg = f"{symbol}/{interval}: {str(e)}"
+                errors.append(msg)
+                results[symbol][interval] = {"error": str(e)}
+                print(f"[load-db] HATA {msg}")
+
+    total_saved = sum(
+        v.get("saved", 0)
+        for sym_data in results.values()
+        for v in sym_data.values()
+        if isinstance(v, dict)
+    )
+    return {
+        "status": "done",
+        "total_saved": total_saved,
+        "results": results,
+        "errors": errors,
+    }

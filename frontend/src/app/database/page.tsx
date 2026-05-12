@@ -470,6 +470,8 @@ export default function DatabasePage() {
   const [cells, setCells] = useState<Cell[]>(initCells);
   const [tables, setTables] = useState<TableMeta[]>([]);
   const [tablesLoading, setTablesLoading] = useState(true);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (sessionStorage.getItem("auth") !== "1") { router.replace("/login"); return; }
@@ -481,6 +483,22 @@ export default function DatabasePage() {
   }, [router]);
 
   function handleLogout() { sessionStorage.removeItem("auth"); router.replace("/login"); }
+
+  async function handleBulkLoad() {
+    setBulkLoading(true);
+    setBulkStatus("Yükleniyor… (bu işlem 2-3 dk sürebilir)");
+    try {
+      const res = await fetch("/api/history/load-db", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Hata");
+      setBulkStatus(`✓ ${data.total_saved} bar kaydedildi${data.errors?.length ? ` (${data.errors.length} hata)` : ""}`);
+    } catch (e: any) {
+      setBulkStatus(`⚠️ ${e.message}`);
+    } finally {
+      setBulkLoading(false);
+      setTimeout(() => setBulkStatus(null), 8000);
+    }
+  }
 
   const runCell = useCallback(async (id: string) => {
     const cell = cells.find((c) => c.id === id);
@@ -573,6 +591,18 @@ export default function DatabasePage() {
             Tümünü Çalıştır
           </button>
           <button
+            onClick={handleBulkLoad}
+            disabled={bulkLoading}
+            title="Tüm semboller için tarihi OHLCV verisini DB'ye yükle (beta ML için)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-[12px] font-medium transition-all hover:bg-white/10"
+            style={{ color: bulkLoading ? "#636366" : "#FF9F0A", border: `0.5px solid ${bulkLoading ? "rgba(99,99,102,0.3)" : "rgba(255,159,10,0.3)"}` }}
+          >
+            {bulkLoading
+              ? <svg className="animate-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg>
+              : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+            {bulkLoading ? "Yükleniyor…" : "Tarihi Veriyi Yükle"}
+          </button>
+          <button
             onClick={handleLogout}
             className="text-[12px] px-2 py-1 rounded-md hover:bg-white/5 transition-colors"
             style={{ color: "#636366" }}
@@ -604,6 +634,16 @@ export default function DatabasePage() {
               PostgreSQL · Railway
             </span>
           </div>
+
+          {/* Bulk load status banner */}
+          {bulkStatus && (
+            <div className="px-4 py-2.5 rounded-[10px] text-[12px] font-medium"
+              style={{ background: bulkStatus.startsWith("✓") ? "rgba(48,209,88,0.1)" : bulkStatus.startsWith("⚠️") ? "rgba(255,69,58,0.1)" : "rgba(255,159,10,0.1)",
+                color: bulkStatus.startsWith("✓") ? "#30D158" : bulkStatus.startsWith("⚠️") ? "#FF453A" : "#FF9F0A",
+                border: `0.5px solid ${bulkStatus.startsWith("✓") ? "rgba(48,209,88,0.2)" : bulkStatus.startsWith("⚠️") ? "rgba(255,69,58,0.2)" : "rgba(255,159,10,0.2)"}` }}>
+              {bulkStatus}
+            </div>
+          )}
 
           {/* Hücreler */}
           {cells.map((cell, i) => (
