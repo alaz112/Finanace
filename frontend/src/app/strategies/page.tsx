@@ -1,8 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+
+/* ─── Canlı Tarama Tipleri ────────────────────────────────────────────────── */
+interface MSCIResult {
+  symbol: string;
+  name: string;
+  signal: "HIGH" | "MEDIUM" | "LOW" | "ERROR";
+  score?: number;
+  atvr_pct?: number;
+  float_mcap_usd_m?: number;
+  total_mcap_usd_m?: number;
+  free_float_pct?: number;
+  passes_liquidity?: boolean;
+  passes_min_size?: boolean;
+  current_price_tl?: number;
+  ma50_tl?: number;
+  above_ma50?: boolean;
+  median_daily_value_tl?: number;
+  error?: string;
+}
+interface MSCIScreenResponse {
+  results: MSCIResult[];
+  screened_at: string;
+  usd_try_rate: number;
+  cached: boolean;
+  cache_age_minutes?: number;
+}
 
 /* ─── Strateji içerikleri ─────────────────────────────────────────────────── */
 
@@ -404,7 +430,27 @@ function CSharpLine({ line }: { line: string }) {
 
 export default function StrategiesPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"flow" | "python" | "csharp">("flow");
+  const [activeTab, setActiveTab] = useState<"flow" | "python" | "csharp" | "live">("flow");
+
+  // ── Canlı tarama state
+  const [scanData, setScanData] = useState<MSCIScreenResponse | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const runScan = useCallback(async () => {
+    setScanLoading(true);
+    setScanError(null);
+    try {
+      const res = await fetch("/api/msci");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: MSCIScreenResponse = await res.json();
+      setScanData(data);
+    } catch (e: any) {
+      setScanError(e.message ?? "Bilinmeyen hata");
+    } finally {
+      setScanLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (sessionStorage.getItem("auth") !== "1") {
@@ -478,9 +524,10 @@ export default function StrategiesPage() {
           style={{ background: "#E5E5EA" }}
         >
           {[
-            { id: "flow", label: "Akış Diyagramı", icon: "⚡" },
-            { id: "python", label: "Python Tarayıcı", icon: "🐍" },
-            { id: "csharp", label: "Matriks IQ (C#)", icon: "⚙️" },
+            { id: "flow",   label: "Akış Diyagramı",  icon: "⚡" },
+            { id: "python", label: "Python Tarayıcı",  icon: "🐍" },
+            { id: "csharp", label: "Matriks IQ (C#)",  icon: "⚙️" },
+            { id: "live",   label: "Canlı Tarama",     icon: "📡" },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -719,7 +766,215 @@ export default function StrategiesPage() {
             <CodeBlock code={CSHARP_CODE} language="csharp" title="matriks_iq_msci.cs" />
           </div>
         )}
+
+        {/* ── TAB: Canlı Tarama ───────────────────────────────────────────── */}
+        {activeTab === "live" && (
+          <div className="space-y-5">
+            {/* Açıklama + Tara butonu */}
+            <div
+              className="rounded-[20px] p-6 flex items-center justify-between gap-6"
+              style={{ background: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.07), 0 6px 20px rgba(0,0,0,0.05)" }}
+            >
+              <div>
+                <h2 className="text-[17px] font-bold text-apple-label mb-1">Canlı MSCI Taraması</h2>
+                <p className="text-[13px] text-apple-secondary">
+                  ASELS · YEOTK · KONTR için Railway backend'den gerçek zamanlı ATVR hesabı.
+                  Sonuçlar 6 saat önbelleklenir.
+                </p>
+              </div>
+              <button
+                onClick={runScan}
+                disabled={scanLoading}
+                className="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-[12px] text-[13px] font-semibold transition-all"
+                style={{
+                  background: scanLoading ? "#E5E5EA" : "#5856D6",
+                  color: scanLoading ? "#AEAEB2" : "#FFFFFF",
+                }}
+              >
+                {scanLoading ? (
+                  <>
+                    <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                    Taranıyor…
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    Tara
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Hata */}
+            {scanError && (
+              <div className="rounded-[16px] p-4 text-[13px]" style={{ background: "#FFF2F2", color: "#FF3B30", border: "0.5px solid #FFD2D2" }}>
+                ⚠️ {scanError}
+              </div>
+            )}
+
+            {/* Boş durum */}
+            {!scanData && !scanLoading && !scanError && (
+              <div
+                className="rounded-[20px] p-10 text-center"
+                style={{ background: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}
+              >
+                <div className="text-[40px] mb-3">📡</div>
+                <p className="text-[15px] font-semibold text-apple-label">Henüz taranmadı</p>
+                <p className="text-[13px] text-apple-secondary mt-1">
+                  Yukarıdaki "Tara" butonuna tıklayarak Railway backend'den canlı veri çek.
+                </p>
+              </div>
+            )}
+
+            {/* Sonuçlar */}
+            {scanData && (
+              <>
+                {/* Meta bilgi */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-[12px] text-apple-secondary">
+                    Tarih: {new Date(scanData.screened_at).toLocaleString("tr-TR")}
+                  </span>
+                  <span className="text-[12px] text-apple-secondary">·</span>
+                  <span className="text-[12px] text-apple-secondary">
+                    USD/TRY: {scanData.usd_try_rate}
+                  </span>
+                  {scanData.cached && (
+                    <>
+                      <span className="text-[12px] text-apple-secondary">·</span>
+                      <span
+                        className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                        style={{ background: "#FFF4E0", color: "#FF9F0A" }}
+                      >
+                        Önbellekten · {scanData.cache_age_minutes} dk önce
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* Sonuç kartları */}
+                <div className="space-y-3">
+                  {scanData.results.map((r) => (
+                    <ScanResultCard key={r.symbol} result={r} />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+/* ─── Tarama Sonucu Kartı ─────────────────────────────────────────────────── */
+const SIGNAL_META = {
+  HIGH:   { label: "HIGH",   bg: "#E3F9E9", color: "#30D158", bar: "#30D158" },
+  MEDIUM: { label: "MEDIUM", bg: "#FFF4E0", color: "#FF9F0A", bar: "#FF9F0A" },
+  LOW:    { label: "LOW",    bg: "#F5F5F7", color: "#8E8E93", bar: "#C7C7CC" },
+  ERROR:  { label: "HATA",   bg: "#FFF2F2", color: "#FF3B30", bar: "#FF3B30" },
+};
+
+function ScanResultCard({ result: r }: { result: MSCIResult }) {
+  const [expanded, setExpanded] = useState(false);
+  const sm = SIGNAL_META[r.signal] ?? SIGNAL_META.LOW;
+
+  if (r.signal === "ERROR") {
+    return (
+      <div
+        className="rounded-[16px] p-4 flex items-center gap-3"
+        style={{ background: sm.bg, border: `0.5px solid ${sm.color}30` }}
+      >
+        <span className="text-[22px]">⚠️</span>
+        <div>
+          <p className="text-[14px] font-semibold" style={{ color: sm.color }}>{r.symbol}</p>
+          <p className="text-[12px] mt-0.5" style={{ color: "#8E8E93" }}>{r.error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const scoreWidth = `${Math.min(r.score ?? 0, 100)}%`;
+
+  return (
+    <div
+      className="rounded-[20px] overflow-hidden transition-all"
+      style={{ background: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.07), 0 6px 20px rgba(0,0,0,0.04)" }}
+    >
+      {/* Başlık satırı */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-4 px-5 py-4 text-left"
+      >
+        {/* Sinyal badge */}
+        <span
+          className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full"
+          style={{ background: sm.bg, color: sm.color }}
+        >
+          {sm.label}
+        </span>
+
+        {/* Şirket */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[15px] font-bold text-apple-label">{r.symbol}</span>
+            <span className="text-[13px] text-apple-secondary truncate">{r.name}</span>
+          </div>
+          {/* Skor çubuğu */}
+          <div className="mt-2 h-1.5 rounded-full" style={{ background: "#F2F2F7", width: "180px" }}>
+            <div
+              className="h-1.5 rounded-full transition-all"
+              style={{ background: sm.bar, width: scoreWidth }}
+            />
+          </div>
+        </div>
+
+        {/* Skor + ok */}
+        <div className="shrink-0 flex items-center gap-3">
+          <div className="text-right">
+            <p className="text-[20px] font-bold" style={{ color: sm.color }}>{r.score}</p>
+            <p className="text-[10px] text-apple-secondary">/ 100</p>
+          </div>
+          <svg
+            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" strokeWidth="2" strokeLinecap="round"
+            className="transition-transform"
+            style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </div>
+      </button>
+
+      {/* Detay */}
+      {expanded && (
+        <div
+          className="px-5 pb-5 pt-1 border-t grid grid-cols-2 gap-x-8 gap-y-3"
+          style={{ borderColor: "rgba(0,0,0,0.06)" }}
+        >
+          {[
+            { label: "ATVR",             value: `%${r.atvr_pct?.toFixed(2)}`,   pass: r.passes_liquidity, threshold: "≥ %15" },
+            { label: "Float MCAP",       value: `$${r.float_mcap_usd_m?.toFixed(1)}M`, pass: r.passes_min_size, threshold: "≥ $160M" },
+            { label: "Toplam MCAP",      value: `$${r.total_mcap_usd_m?.toFixed(1)}M`, pass: undefined },
+            { label: "Fiili Dolaşım",    value: `%${r.free_float_pct}`,          pass: (r.free_float_pct ?? 0) >= 15 },
+            { label: "Fiyat (TL)",       value: r.current_price_tl?.toFixed(2),  pass: r.above_ma50, threshold: `MA50: ${r.ma50_tl?.toFixed(2)}` },
+            { label: "MA50 (TL)",        value: r.ma50_tl?.toFixed(2),           pass: undefined },
+          ].map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-2">
+              <span className="text-[12px] text-apple-secondary">{row.label}</span>
+              <div className="flex items-center gap-1.5">
+                {row.pass !== undefined && (
+                  <span style={{ color: row.pass ? "#30D158" : "#FF3B30", fontSize: "11px" }}>
+                    {row.pass ? "✓" : "✗"}
+                  </span>
+                )}
+                <span className="text-[13px] font-semibold text-apple-label">{row.value ?? "—"}</span>
+                {row.threshold && (
+                  <span className="text-[10px] text-apple-secondary">({row.threshold})</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

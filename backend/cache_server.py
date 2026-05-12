@@ -315,3 +315,231 @@ async def get_forecast(
         "training_days": len(df),
         "model":       "prophet",
     }
+
+
+# ─── MSCI ATVR Tarayıcı ─────────────────────────────────────────────────────
+
+# Temel verileri statik tutuyoruz (quarterly güncellenir, günlük değişmez)
+MSCI_BIST_META = {
+    "ASELS": {
+        "name":             "Aselsan Elektronik",
+        "free_float_ratio": 0.35,
+        "float_mcap_tl":    18_000_000_000,   # ~18 Milyar TL
+        "total_mcap_tl":    52_000_000_000,
+    },
+    "YEOTK": {
+        "name":             "Yeo Teknoloji",
+        "free_float_ratio": 0.34,
+        "float_mcap_tl":    1_200_000_000,
+        "total_mcap_tl":    3_500_000_000,
+    },
+    "KONTR": {
+        "name":             "Kontrolmatik",
+        "free_float_ratio": 0.32,
+        "float_mcap_tl":    800_000_000,
+        "total_mcap_tl":    2_500_000_000,
+    },
+}
+
+MSCI_CACHE_TTL = 3600 * 6   # 6 saat (ATVR günlük veriye dayanır, çok sık güncellemeye gerek yok)
+
+
+async def fetch_bist_ohlcv(symbol: str, outputsize: int = 90) -> list:
+    """BIST hissesi için günlük OHLCV verisi çeker (volume dahil)."""
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.get(
+            f"{TD_BASE}/time_series",
+            params={
+                "symbol":     symbol,
+                "interval":   "1day",
+                "outputsize": outputsize,
+                "apikey":     TD_KEY,
+            },
+        )
+    r.raise_for_status()
+    data = r.json()
+    if data.get("status") == "error":
+        raise ValueError(data.get("message", "TD error"))
+    values = list(reversed(data.get("values", [])))   # eski → yeni
+    result = []
+    for v in values:
+        close  = float(v.get("close", 0) or 0)
+        volume = float(v.get("volume", 0) or 0)
+        result.append({
+            "date":     v["datetime"].split(" ")[0],
+            "close":    close,
+            "volume":   volume,
+            "value_tl": close * volume,   # günlük TL işlem hacmi
+        })
+    return result
+
+
+def _compute_atvr(daily_values_tl: list, float_mcap_tl: float, window: int = 63) -> float:
+    if float_mcap_tl <= 0 or not daily_values_tl:
+        return 0.0
+    import statistics
+    w = daily_values_tl[-window:]
+    med = statistics.median(w)
+    return round(med * 252 / float_mcap_tl * 100, 4)
+
+
+def _score_and_signal(atvr: float, float_mcap_usd_m: float, ff_ratio: float,
+                      close: float, ma50: float) -> tuple:
+    """0-100 bileşik puan ve HIGH/MEDIUM/LOW sinyal döner."""
+    # Likidite (0-40)
+    if atvr >= 40:
+        liq = 40.0
+    elif atvr >= 15:
+        liq = 15.0 + (atvr - 15) / 25 * 25
+    elif atvr >= 8:
+        liq = (atvr / 15) * 15
+    else:
+        liq = 0.0
+
+    # Boyut (0-35)
+    if float_mcap_usd_m >= 240:
+        size = 35.0
+    elif float_mcap_usd_m >= 160:
+        size = 20.0 + (float_mcap_usd_m - 160) / 80 * 15
+    elif float_mcap_usd_m >= 35:
+        size = (float_mcap_usd_m / 160) * 20
+    else:
+        size = 0.0
+
+    # Fiili dolaşım (0-15)
+    if ff_ratio >= 0.25:
+        ff = 15.0
+    elif ff_ratio >= 0.15:
+        ff = (ff_ratio - 0.15) / 0.10 * 15
+    else:
+        ff = 0.0
+
+    # Momentum (0-10)
+    mom = 10.0 if (ma50 > 0 and close > ma50) else 0.0
+
+    score = round(liq + size + ff + mom, 1)
+
+    passes_liq  = atvr >= 15.0
+    passes_size = float_mcap_usd_m >= 160.0
+
+    if passes_liq and passes_size and score >= 65:
+        signal = "HIGH"
+    elif (passes_liq or passes_size) and score >= 40:
+        signal = "MEDIUM"
+    else:
+        signal = "LOW"
+
+    return signal, score, passes_liq, passes_size
+
+
+@app.get("/api/msci/screen")
+async def msci_screen():
+    """
+    BIST hisseleri için canlı MSCI ATVR taraması.
+    Sonuçlar 6 saat SQLite'ta önbelleklenir.
+    """
+    import json, statistics
+
+    CACHE_SYMBOL = "__msci_screen__"
+    CACHE_INTERVAL = "msci"
+    now = int(time.time())
+    conn = get_db()
+
+    try:
+        # ─ Cache kontrolü
+        row = conn.execute(
+            "SELECT data_json, fetched_at FROM history_cache WHERE symbol=? AND interval=?",
+            (CACHE_SYMBOL, CACHE_INTERVAL),
+        ).fetchone()
+        if row and (now - row["fetched_at"]) < MSCI_CACHE_TTL:
+            cached = json.loads(row["data_json"])
+            cached["cached"] = True
+            cached["cache_age_minutes"] = round((now - row["fetched_at"]) / 60, 1)
+            return cached
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+    # ─ USD/TRY kuru
+    try:
+        usdtry = await fetch_price_from_td("USD/TRY")
+    except Exception:
+        usdtry = 38.0   # fallback
+
+    results = []
+    for symbol, meta in MSCI_BIST_META.items():
+        try:
+            series = await fetch_bist_ohlcv(symbol, outputsize=90)
+            await asyncio.sleep(0.8)   # rate limit koruması
+
+            if len(series) < 20:
+                raise ValueError(f"Yetersiz veri: {len(series)} gün")
+
+            closes     = [s["close"] for s in series]
+            values_tl  = [s["value_tl"] for s in series]
+
+            ma50  = round(sum(closes[-50:]) / len(closes[-50:]), 4) if len(closes) >= 50 \
+                    else round(sum(closes) / len(closes), 4)
+            close = closes[-1]
+
+            float_mcap_tl    = meta["float_mcap_tl"]
+            float_mcap_usd_m = (float_mcap_tl / usdtry) / 1_000_000
+            total_mcap_usd_m = (meta["total_mcap_tl"] / usdtry) / 1_000_000
+
+            atvr = _compute_atvr(values_tl, float_mcap_tl)
+            signal, score, passes_liq, passes_size = _score_and_signal(
+                atvr, float_mcap_usd_m, meta["free_float_ratio"], close, ma50
+            )
+
+            med_daily = round(float(pd.Series(values_tl[-63:]).median()), 0)
+
+            results.append({
+                "symbol":            symbol,
+                "name":              meta["name"],
+                "signal":            signal,
+                "score":             score,
+                "atvr_pct":          round(atvr, 2),
+                "float_mcap_usd_m":  round(float_mcap_usd_m, 1),
+                "total_mcap_usd_m":  round(total_mcap_usd_m, 1),
+                "free_float_pct":    round(meta["free_float_ratio"] * 100, 1),
+                "passes_liquidity":  passes_liq,
+                "passes_min_size":   passes_size,
+                "current_price_tl":  round(close, 2),
+                "ma50_tl":           round(ma50, 2),
+                "above_ma50":        close > ma50,
+                "median_daily_value_tl": med_daily,
+                "data_days":         len(series),
+            })
+        except Exception as exc:
+            results.append({
+                "symbol":  symbol,
+                "name":    meta.get("name", symbol),
+                "signal":  "ERROR",
+                "error":   str(exc),
+            })
+
+    # Skora göre sırala (ERROR'lar sona)
+    results.sort(key=lambda x: x.get("score", -1), reverse=True)
+
+    response = {
+        "results":      results,
+        "screened_at":  datetime.now(timezone.utc).isoformat(),
+        "usd_try_rate": round(usdtry, 2),
+        "cached":       False,
+    }
+
+    # ─ Cache'e yaz
+    conn2 = get_db()
+    try:
+        conn2.execute(
+            "INSERT OR REPLACE INTO history_cache(symbol,interval,data_json,fetched_at) VALUES(?,?,?,?)",
+            (CACHE_SYMBOL, CACHE_INTERVAL, json.dumps(response), now),
+        )
+        conn2.commit()
+    except Exception:
+        pass
+    finally:
+        conn2.close()
+
+    return response
