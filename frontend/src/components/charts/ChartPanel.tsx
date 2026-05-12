@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { createChart, ColorType, CandlestickSeries } from "lightweight-charts";
+import { createChart, ColorType, CandlestickSeries, LineSeries, AreaSeries } from "lightweight-charts";
 import { fetchHistory } from "@/lib/api";
 import AnalysisModal from "@/components/ui/AnalysisModal";
 
@@ -39,6 +39,9 @@ const SYMBOL_META: Record<string, { name: string; color: string }> = {
 
 export default function ChartPanel({ defaultSymbol, symbols }: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
+  const chartInstanceRef = useRef<any>(null);
+  const lastCandleTimeRef = useRef<any>(null);
+  const forecastSeriesRef = useRef<any[]>([]);
 
   const [symbol, setSymbol] = useState(defaultSymbol);
   const [interval, setInterval] = useState("1day");
@@ -53,6 +56,10 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
     if (!chartRef.current) return;
 
     const containerWidth = chartRef.current.getBoundingClientRect().width || chartRef.current.offsetWidth || 600;
+
+    chartInstanceRef.current = null;
+    lastCandleTimeRef.current = null;
+    forecastSeriesRef.current = [];
 
     const chart = createChart(chartRef.current, {
       layout: {
@@ -85,6 +92,8 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
       wickDownColor: "#FF3B30",
     });
 
+    chartInstanceRef.current = chart;
+
     setLoading(true);
     setError(null);
     setForecast(null);
@@ -92,15 +101,17 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
 
     fetchHistory(symbol, interval, 200)
       .then((data) => {
-        candleSeries.setData(
-          data.map((d) => ({
-            time: d.time as any,
-            open: d.open,
-            high: d.high,
-            low: d.low,
-            close: d.close,
-          }))
-        );
+        const mapped = data.map((d) => ({
+          time: d.time as any,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        }));
+        candleSeries.setData(mapped);
+        if (mapped.length > 0) {
+          lastCandleTimeRef.current = mapped[mapped.length - 1].time;
+        }
 
         // fitContent'i bir sonraki frame'e ertele (layout hesaplanmış olsun)
         requestAnimationFrame(() => chart.timeScale().fitContent());
@@ -120,8 +131,76 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
     return () => {
       window.removeEventListener("resize", handleResize);
       chart.remove();
+      chartInstanceRef.current = null;
+      lastCandleTimeRef.current = null;
+      forecastSeriesRef.current = [];
     };
   }, [symbol, interval]);
+
+  // Forecast eğrisini chart üstüne çiz
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+
+    // Önceki forecast serilerini temizle
+    if (forecastSeriesRef.current.length > 0 && chart) {
+      forecastSeriesRef.current.forEach((s) => { try { chart.removeSeries(s); } catch {} });
+      forecastSeriesRef.current = [];
+    } else {
+      forecastSeriesRef.current = [];
+    }
+
+    if (!forecast || !chart || !lastCandleTimeRef.current) return;
+
+    const isIntraday = interval !== "1day" && interval !== "1week";
+    const toTime = (dateStr: string) =>
+      isIntraday
+        ? Math.floor(new Date(dateStr + "T12:00:00Z").getTime() / 1000)
+        : dateStr;
+
+    const lastTime = lastCandleTimeRef.current;
+    const anchor = { time: lastTime, value: forecast.last_close };
+
+    const lineData = [anchor, ...forecast.predictions.map((p) => ({ time: toTime(p.date) as any, value: p.price }))];
+    const upperData = [anchor, ...forecast.predictions.map((p) => ({ time: toTime(p.date) as any, value: p.upper }))];
+    const lowerData = [anchor, ...forecast.predictions.map((p) => ({ time: toTime(p.date) as any, value: p.lower }))];
+
+    // Güven bandı (üst)
+    const upperSeries = chart.addSeries(AreaSeries, {
+      lineColor: "rgba(88,86,214,0.0)",
+      topColor: "rgba(88,86,214,0.15)",
+      bottomColor: "rgba(88,86,214,0.0)",
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    upperSeries.setData(upperData);
+
+    // Alt sınır çizgisi
+    const lowerSeries = chart.addSeries(LineSeries, {
+      color: "rgba(88,86,214,0.35)",
+      lineWidth: 1,
+      lineStyle: 2,
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    lowerSeries.setData(lowerData);
+
+    // Ana tahmin çizgisi
+    const lineSeries = chart.addSeries(LineSeries, {
+      color: "#5856D6",
+      lineWidth: 2,
+      lineStyle: 0,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 5,
+    });
+    lineSeries.setData(lineData);
+
+    forecastSeriesRef.current = [upperSeries, lowerSeries, lineSeries];
+    requestAnimationFrame(() => chart.timeScale().fitContent());
+  }, [forecast, interval]);
 
   const meta = SYMBOL_META[symbol] ?? { name: symbol, color: "#007AFF" };
 
