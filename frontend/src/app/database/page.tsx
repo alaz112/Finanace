@@ -27,9 +27,9 @@ interface Cell {
 
 /* ─── Başlangıç hücreleri ────────────────────────────────────────────────── */
 const STARTER_CELLS: Omit<Cell, "result" | "error" | "loading" | "rowFilter" | "sortCol" | "sortDir">[] = [
-  { id: "c1", sql: "SELECT * FROM price_cache ORDER BY fetched_at DESC" },
-  { id: "c2", sql: "SELECT symbol, price, datetime(recorded_at, 'unixepoch') AS tarih\nFROM price_history\nORDER BY recorded_at DESC\nLIMIT 100" },
-  { id: "c3", sql: "SELECT symbol, interval,\n       datetime(fetched_at, 'unixepoch') AS guncelleme,\n       length(data_json) AS boyut_byte\nFROM history_cache\nORDER BY fetched_at DESC" },
+  { id: "c1", sql: "SELECT symbol, price,\n       to_char(to_timestamp(fetched_at), 'YYYY-MM-DD HH24:MI:SS') AS guncelleme\nFROM price_cache\nORDER BY fetched_at DESC" },
+  { id: "c2", sql: "SELECT symbol, price,\n       to_char(to_timestamp(recorded_at), 'YYYY-MM-DD HH24:MI:SS') AS tarih\nFROM price_history\nORDER BY recorded_at DESC\nLIMIT 100" },
+  { id: "c3", sql: "SELECT symbol, interval,\n       to_char(to_timestamp(fetched_at), 'YYYY-MM-DD HH24:MI:SS') AS guncelleme,\n       length(data_json) AS boyut_byte\nFROM history_cache\nORDER BY fetched_at DESC" },
 ];
 
 function makeCell(sql = ""): Cell {

@@ -1,17 +1,19 @@
 """
 Finance Cache + ML Forecast Server
-- SQLite ile fiyat/history cache (rate limit koruması)
+- PostgreSQL ile fiyat/history cache (rate limit koruması)
 - Prophet ile 1-3 günlük tahmin
 - CORS açık (Next.js frontend ile çalışır)
 """
 
-import os, sqlite3, time, asyncio
+import os, time, asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import httpx
 import pandas as pd
 import numpy as np
+import psycopg2
+import psycopg2.extras
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prophet import Prophet
@@ -19,46 +21,68 @@ from prophet import Prophet
 # ─── Config ────────────────────────────────────────────────────────────────
 TD_KEY = os.getenv("TWELVE_DATA_API_KEY", "dbe4071a53634adfb69feab61ef7dfb1")
 TD_BASE = "https://api.twelvedata.com"
-DB_PATH = os.path.join(os.path.dirname(__file__), "finance_cache.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 SYMBOLS = ["XAU/USD", "USD/CHF", "MRVL", "AVGO", "ASELS", "YEOTK", "KONTR"]
 
 PRICE_TTL = 60        # saniye
 HISTORY_TTL = 300     # saniye
 
-# ─── SQLite init ────────────────────────────────────────────────────────────
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ─── PostgreSQL init ─────────────────────────────────────────────────────────
+class PGConn:
+    """SQLite benzeri arayüz sağlayan ince psycopg2 sarmalayıcı."""
+    def __init__(self):
+        self._conn = psycopg2.connect(
+            DATABASE_URL,
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+
+    def execute(self, sql: str, params=None):
+        cur = self._conn.cursor()
+        cur.execute(sql, params or ())
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
+def get_db() -> PGConn:
+    return PGConn()
+
 
 def init_db():
     conn = get_db()
-    conn.executescript("""
+    stmts = [
+        """
         CREATE TABLE IF NOT EXISTS price_cache (
             symbol      TEXT PRIMARY KEY,
-            price       REAL NOT NULL,
-            fetched_at  INTEGER NOT NULL
-        );
-
+            price       DOUBLE PRECISION NOT NULL,
+            fetched_at  BIGINT NOT NULL
+        )""",
+        """
         CREATE TABLE IF NOT EXISTS history_cache (
             symbol      TEXT NOT NULL,
             interval    TEXT NOT NULL,
             data_json   TEXT NOT NULL,
-            fetched_at  INTEGER NOT NULL,
+            fetched_at  BIGINT NOT NULL,
             PRIMARY KEY (symbol, interval)
-        );
-
+        )""",
+        """
         CREATE TABLE IF NOT EXISTS price_history (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          BIGSERIAL PRIMARY KEY,
             symbol      TEXT NOT NULL,
-            price       REAL NOT NULL,
-            recorded_at INTEGER NOT NULL
-        );
-
+            price       DOUBLE PRECISION NOT NULL,
+            recorded_at BIGINT NOT NULL
+        )""",
+        """
         CREATE INDEX IF NOT EXISTS idx_price_history_symbol
-            ON price_history(symbol, recorded_at);
-    """)
+            ON price_history(symbol, recorded_at)""",
+    ]
+    for stmt in stmts:
+        conn.execute(stmt)
     conn.commit()
     conn.close()
 
@@ -126,7 +150,7 @@ async def warm_cache():
                 try:
                     # Cache'te taze veri varsa atla
                     row = conn.execute(
-                        "SELECT fetched_at FROM history_cache WHERE symbol=? AND interval=?",
+                        "SELECT fetched_at FROM history_cache WHERE symbol=%s AND interval=%s",
                         (symbol, interval)
                     ).fetchone()
                     if row and (now - row["fetched_at"]) < HISTORY_TTL:
@@ -136,8 +160,10 @@ async def warm_cache():
                     print(f"[warm_cache] {symbol} {interval} outputsize={outputsize} çekiliyor…")
                     data = await fetch_history_from_td(symbol, interval, outputsize)
                     conn.execute(
-                        "INSERT OR REPLACE INTO history_cache(symbol,interval,data_json,fetched_at) "
-                        "VALUES(?,?,?,?)",
+                        """
+                        INSERT INTO history_cache(symbol, interval, data_json, fetched_at) VALUES(%s, %s, %s, %s)
+                        ON CONFLICT (symbol, interval) DO UPDATE SET data_json = EXCLUDED.data_json, fetched_at = EXCLUDED.fetched_at
+                        """,
                         (symbol, interval, json.dumps(data), int(time.time()))
                     )
                     conn.commit()
@@ -180,7 +206,7 @@ async def get_price(symbol: str):
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT price, fetched_at FROM price_cache WHERE symbol=?", (symbol,)
+            "SELECT price, fetched_at FROM price_cache WHERE symbol=%s", (symbol,)
         ).fetchone()
 
         if row and (now - row["fetched_at"]) < PRICE_TTL:
@@ -190,12 +216,15 @@ async def get_price(symbol: str):
         # Cache miss → fetch
         price = await fetch_price_from_td(symbol)
         conn.execute(
-            "INSERT OR REPLACE INTO price_cache(symbol,price,fetched_at) VALUES(?,?,?)",
+            """
+            INSERT INTO price_cache(symbol, price, fetched_at) VALUES(%s, %s, %s)
+            ON CONFLICT (symbol) DO UPDATE SET price = EXCLUDED.price, fetched_at = EXCLUDED.fetched_at
+            """,
             (symbol, price, now)
         )
         # Geçmişe kaydet (her başarılı çekimde)
         conn.execute(
-            "INSERT INTO price_history(symbol,price,recorded_at) VALUES(?,?,?)",
+            "INSERT INTO price_history(symbol, price, recorded_at) VALUES(%s, %s, %s)",
             (symbol, price, now)
         )
         conn.commit()
@@ -221,7 +250,7 @@ async def get_history(
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT data_json, fetched_at FROM history_cache WHERE symbol=? AND interval=?",
+            "SELECT data_json, fetched_at FROM history_cache WHERE symbol=%s AND interval=%s",
             (symbol, interval)
         ).fetchone()
 
@@ -232,7 +261,10 @@ async def get_history(
         data = await fetch_history_from_td(symbol, interval, outputsize)
         data_json = json.dumps(data)
         conn.execute(
-            "INSERT OR REPLACE INTO history_cache(symbol,interval,data_json,fetched_at) VALUES(?,?,?,?)",
+            """
+            INSERT INTO history_cache(symbol, interval, data_json, fetched_at) VALUES(%s, %s, %s, %s)
+            ON CONFLICT (symbol, interval) DO UPDATE SET data_json = EXCLUDED.data_json, fetched_at = EXCLUDED.fetched_at
+            """,
             (symbol, interval, data_json, now)
         )
         conn.commit()
@@ -448,7 +480,7 @@ async def msci_screen():
     try:
         # ─ Cache kontrolü
         row = conn.execute(
-            "SELECT data_json, fetched_at FROM history_cache WHERE symbol=? AND interval=?",
+            "SELECT data_json, fetched_at FROM history_cache WHERE symbol=%s AND interval=%s",
             (CACHE_SYMBOL, CACHE_INTERVAL),
         ).fetchone()
         if row and (now - row["fetched_at"]) < MSCI_CACHE_TTL:
@@ -533,7 +565,10 @@ async def msci_screen():
     conn2 = get_db()
     try:
         conn2.execute(
-            "INSERT OR REPLACE INTO history_cache(symbol,interval,data_json,fetched_at) VALUES(?,?,?,?)",
+            """
+            INSERT INTO history_cache(symbol, interval, data_json, fetched_at) VALUES(%s, %s, %s, %s)
+            ON CONFLICT (symbol, interval) DO UPDATE SET data_json = EXCLUDED.data_json, fetched_at = EXCLUDED.fetched_at
+            """,
             (CACHE_SYMBOL, CACHE_INTERVAL, json.dumps(response), now),
         )
         conn2.commit()
@@ -553,20 +588,28 @@ def db_tables():
     conn = get_db()
     try:
         tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            "SELECT tablename AS name FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
         ).fetchall()
         result = []
         for t in tables:
             name = t["name"]
             try:
-                count = conn.execute(f'SELECT COUNT(*) as c FROM "{name}"').fetchone()["c"]
+                count = conn.execute(f'SELECT COUNT(*) AS c FROM "{name}"').fetchone()["c"]
             except Exception:
                 count = 0
-            cols = conn.execute(f'PRAGMA table_info("{name}")').fetchall()
+            cols = conn.execute(
+                """
+                SELECT column_name AS name, data_type AS type
+                FROM information_schema.columns
+                WHERE table_schema='public' AND table_name=%s
+                ORDER BY ordinal_position
+                """,
+                (name,)
+            ).fetchall()
             result.append({
                 "name":    name,
                 "rows":    count,
-                "columns": [{"name": c["name"], "type": c["type"] or "TEXT"} for c in cols],
+                "columns": [{"name": c["name"], "type": c["type"] or "text"} for c in cols],
             })
         return {"tables": result}
     finally:
@@ -596,7 +639,7 @@ async def db_query(request: Request):
 
     # Tehlikeli anahtar kelimeleri engelle
     dangerous = re.compile(
-        r"\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|REPLACE|ATTACH|DETACH|PRAGMA\s+\w+=)\b",
+        r"\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|REPLACE|ATTACH|DETACH|COPY|TRUNCATE|GRANT|REVOKE)\b",
         re.IGNORECASE,
     )
     if dangerous.search(sql):
