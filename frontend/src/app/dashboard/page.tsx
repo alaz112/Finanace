@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import AssetCard from "@/components/ui/AssetCard";
 import ChartPanel from "@/components/charts/ChartPanel";
 
@@ -29,6 +30,16 @@ export default function Dashboard() {
           <img src="/kurtlogo.png" alt="Logo" className="h-12 w-auto" />
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href="/strategies"
+            className="flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all hover:bg-black/5"
+            style={{ color: "#5856D6" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M3 3h18v18H3z" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/>
+            </svg>
+            Stratejiler
+          </Link>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-apple-greenBg">
             <span className="w-1.5 h-1.5 rounded-full bg-apple-green"></span>
             <span className="text-[11px] font-medium text-apple-green">Canlı</span>
