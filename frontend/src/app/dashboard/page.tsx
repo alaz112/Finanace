@@ -40,6 +40,16 @@ export default function Dashboard() {
             </svg>
             Stratejiler
           </Link>
+          <Link
+            href="/database"
+            className="flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all hover:bg-black/5"
+            style={{ color: "#5856D6" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
+            </svg>
+            Veritabanı
+          </Link>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-apple-greenBg">
             <span className="w-1.5 h-1.5 rounded-full bg-apple-green"></span>
             <span className="text-[11px] font-medium text-apple-green">Canlı</span>

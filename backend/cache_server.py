@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pandas as pd
 import numpy as np
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prophet import Prophet
 
@@ -543,3 +543,80 @@ async def msci_screen():
         conn2.close()
 
     return response
+
+
+# ─── Database Viewer ─────────────────────────────────────────────────────────
+
+@app.get("/api/db/tables")
+def db_tables():
+    """Tüm tabloları, şemalarını ve satır sayılarını döner."""
+    conn = get_db()
+    try:
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+        result = []
+        for t in tables:
+            name = t["name"]
+            try:
+                count = conn.execute(f'SELECT COUNT(*) as c FROM "{name}"').fetchone()["c"]
+            except Exception:
+                count = 0
+            cols = conn.execute(f'PRAGMA table_info("{name}")').fetchall()
+            result.append({
+                "name":    name,
+                "rows":    count,
+                "columns": [{"name": c["name"], "type": c["type"] or "TEXT"} for c in cols],
+            })
+        return {"tables": result}
+    finally:
+        conn.close()
+
+
+@app.post("/api/db/query")
+async def db_query(request: Request):
+    """
+    Kullanıcının gönderdiği SQL sorgusunu çalıştırır.
+    Güvenlik: Sadece SELECT ifadelerine izin verilir.
+    """
+    import re
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Geçersiz JSON gövdesi")
+
+    sql = (body.get("sql") or "").strip()
+    if not sql:
+        raise HTTPException(status_code=400, detail="SQL boş olamaz")
+
+    # Yalnızca SELECT'e izin ver (WITH … SELECT dahil)
+    normalized = re.sub(r"\s+", " ", sql.upper().lstrip())
+    if not (normalized.startswith("SELECT") or normalized.startswith("WITH")):
+        raise HTTPException(status_code=400, detail="Sadece SELECT sorguları çalıştırılabilir")
+
+    # Tehlikeli anahtar kelimeleri engelle
+    dangerous = re.compile(
+        r"\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|REPLACE|ATTACH|DETACH|PRAGMA\s+\w+=)\b",
+        re.IGNORECASE,
+    )
+    if dangerous.search(sql):
+        raise HTTPException(status_code=400, detail="Bu işlem güvenlik nedeniyle engellendi")
+
+    # LIMIT yoksa otomatik ekle
+    if "LIMIT" not in sql.upper():
+        sql = sql.rstrip(";") + " LIMIT 500"
+
+    conn = get_db()
+    try:
+        cursor = conn.execute(sql)
+        rows = cursor.fetchall()
+        columns = [d[0] for d in cursor.description] if cursor.description else []
+        return {
+            "columns": columns,
+            "rows":    [dict(r) for r in rows],
+            "count":   len(rows),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        conn.close()
