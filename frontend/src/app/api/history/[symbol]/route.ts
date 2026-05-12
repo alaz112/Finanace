@@ -76,7 +76,7 @@ export async function GET(
   }));
 
   // Remove any duplicate timestamps (safety)
-  const seen = new Set<string>();
+  const seen = new Set<string | number>();
   const deduped = candles.filter((c) => {
     if (seen.has(c.time)) return false;
     seen.add(c.time);
