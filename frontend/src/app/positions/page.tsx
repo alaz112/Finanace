@@ -4,263 +4,174 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-interface Position {
-  id: string;
-  symbol: string;
-  instrumentName: string;
-  qty: number;
-  buyPrice: number;
-  buyDate: string;
-  note: string;
-}
-
-interface LivePrice {
-  price: number;
-  loading: boolean;
-  error: boolean;
-}
-
-interface SearchResult {
-  symbol: string;
-  instrument_name: string;
-  exchange: string;
-  instrument_type: string;
-  currency: string;
-}
-
+/* ─── Types ─────────────────────────────────────────────────────────────── */
 interface StrategyRow {
   id: number;
   category: string;
   category_pct: number;
-  symbols: string;   // comma-separated e.g. "NVDA,SMH"
+  symbols: string;    // comma-separated "NVDA,SMH"
   amount_usd: number;
   broker: string;
-  note: string | null;
 }
 
-const INITIAL_CAPITAL = 5000;
-const STORAGE_KEY = "finance_positions_v2";
+/* Each symbol inside a strategy row is a "slot" */
+interface Slot {
+  rowId: number;
+  category: string;
+  category_pct: number;
+  broker: string;
+  symbol: string;
+  allocated: number;    // amount_usd / num_symbols
+}
+
+/* ─── Helpers ────────────────────────────────────────────────────────────── */
+const ENTRY_KEY = "strategy_entry_prices"; // localStorage
+
+function loadEntryPrices(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(ENTRY_KEY) ?? "{}"); } catch { return {}; }
+}
+function saveEntryPrices(ep: Record<string, number>) {
+  localStorage.setItem(ENTRY_KEY, JSON.stringify(ep));
+}
 
 function symbolColor(sym: string): string {
-  const COLORS = ["#FF9500","#FF3B30","#5856D6","#34C759","#0A84FF","#FF9F0A","#30D158","#64D2FF","#BF5AF2","#FF6B6B"];
-  let hash = 0;
-  for (let i = 0; i < sym.length; i++) hash = sym.charCodeAt(i) + ((hash << 5) - hash);
-  return COLORS[Math.abs(hash) % COLORS.length];
-}
-
-function uid() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const C = ["#FF9500","#FF3B30","#5856D6","#34C759","#0A84FF","#FF9F0A","#30D158","#64D2FF","#BF5AF2","#FF6B6B"];
+  let h = 0;
+  for (let i = 0; i < sym.length; i++) h = sym.charCodeAt(i) + ((h << 5) - h);
+  return C[Math.abs(h) % C.length];
 }
 
 function fmt(n: number, dec = 2) {
   return n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 
-function SymbolBadge({ symbol, size = 32 }: { symbol: string; size?: number }) {
-  const color = symbolColor(symbol);
-  const letters = symbol.replace(/[^A-Z0-9]/gi, "").slice(0, 2).toUpperCase();
+function Badge({ symbol, size = 30 }: { symbol: string; size?: number }) {
+  const c = symbolColor(symbol);
+  const l = symbol.replace(/[^A-Z0-9]/gi, "").slice(0, 2).toUpperCase();
   return (
-    <div className="flex items-center justify-center rounded-[8px] shrink-0 font-bold"
-      style={{ width: size, height: size, background: color + "22", color, fontSize: size * 0.38, border: `1px solid ${color}44` }}>
-      {letters}
+    <div className="flex items-center justify-center rounded-[7px] shrink-0 font-bold"
+      style={{ width: size, height: size, background: c + "22", color: c, fontSize: size * 0.38, border: `1px solid ${c}44` }}>
+      {l}
     </div>
   );
 }
 
+const CAT_COLOR: Record<string, string> = {
+  Safe: "#30D158", Growth: "#0A84FF", Extreme: "#FF9F0A",
+};
+
+/* ─── Page ───────────────────────────────────────────────────────────────── */
 export default function PositionsPage() {
   const router = useRouter();
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [prices, setPrices] = useState<Record<string, LivePrice>>({});
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [livePrices, setLivePrices] = useState<Record<string, number | null>>({});
+  const [loadingPrices, setLoadingPrices] = useState<Record<string, boolean>>({});
+  const [entryPrices, setEntryPrices] = useState<Record<string, number>>({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState("");
+  const totalCapital = 5000;
 
-  // Strategy
-  const [strategy, setStrategy] = useState<StrategyRow[]>([]);
-  const [stratPrices, setStratPrices] = useState<Record<string, number>>({});
-
-  const [query, setQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const searchRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [selectedSymbol, setSelectedSymbol] = useState("");
-  const [selectedName, setSelectedName] = useState("");
-  const [selectedLivePrice, setSelectedLivePrice] = useState<number | null>(null);
-  const [fetchingLive, setFetchingLive] = useState(false);
-
-  const [qty, setQty] = useState("");
-  const [buyPrice, setBuyPrice] = useState("");
-  const [buyDate, setBuyDate] = useState(new Date().toISOString().split("T")[0]);
-  const [note, setNote] = useState("");
-
+  /* ── Auth ── */
   useEffect(() => {
     if (sessionStorage.getItem("auth") !== "1") router.replace("/login");
   }, [router]);
 
-  // Fetch strategy from DB
+  /* ── Load entry prices ── */
+  useEffect(() => { setEntryPrices(loadEntryPrices()); }, []);
+
+  /* ── Fetch strategy rows ── */
   useEffect(() => {
     fetch("/api/strategy")
       .then(r => r.json())
-      .then(d => setStrategy(d.rows ?? []))
+      .then(d => {
+        const rows: StrategyRow[] = d.rows ?? [];
+        const built: Slot[] = [];
+        for (const row of rows) {
+          const syms = row.symbols.split(",").map((s: string) => s.trim());
+          const alloc = Number(row.amount_usd) / syms.length;
+          for (const sym of syms) {
+            built.push({
+              rowId: row.id,
+              category: row.category,
+              category_pct: row.category_pct,
+              broker: row.broker,
+              symbol: sym,
+              allocated: alloc,
+            });
+          }
+        }
+        setSlots(built);
+      })
       .catch(() => {});
   }, []);
 
-  // Fetch strategy symbol prices
-  useEffect(() => {
-    if (!strategy.length) return;
-    const syms = Array.from(new Set(strategy.flatMap(r => r.symbols.split(",").map(s => s.trim()))));
-    syms.forEach(async sym => {
+  /* ── Fetch live prices ── */
+  const fetchLivePrices = useCallback(async () => {
+    if (!slots.length) return;
+    const syms = Array.from(new Set(slots.map(s => s.symbol)));
+    const updates: Record<string, boolean> = {};
+    syms.forEach(s => (updates[s] = true));
+    setLoadingPrices(updates);
+    await Promise.all(syms.map(async sym => {
       try {
         const res = await fetch(`/api/price/${encodeURIComponent(sym)}`);
         const data = await res.json();
         const p = parseFloat(data.price);
-        if (!isNaN(p)) setStratPrices(prev => ({ ...prev, [sym]: p }));
-      } catch {}
-    });
-  }, [strategy]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) { setPositions(JSON.parse(raw)); return; }
-      const old = localStorage.getItem("finance_positions_v1");
-      if (old) {
-        const parsed = JSON.parse(old) as (Position & { instrumentName?: string })[];
-        setPositions(parsed.map(p => ({ ...p, instrumentName: p.instrumentName ?? p.symbol })));
-      }
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
-  }, [positions]);
-
-  const fetchPrices = useCallback(async () => {
-    const used = Array.from(new Set(positions.map(p => p.symbol)));
-    for (const sym of used) {
-      setPrices(prev => ({ ...prev, [sym]: { price: prev[sym]?.price ?? 0, loading: true, error: false } }));
-      try {
-        const res = await fetch(`/api/price/${encodeURIComponent(sym)}`);
-        const data = await res.json();
-        setPrices(prev => ({ ...prev, [sym]: { price: parseFloat(data.price), loading: false, error: false } }));
+        setLivePrices(prev => ({ ...prev, [sym]: isNaN(p) ? null : p }));
       } catch {
-        setPrices(prev => ({ ...prev, [sym]: { price: prev[sym]?.price ?? 0, loading: false, error: true } }));
-      }
-    }
-  }, [positions]);
-
-  useEffect(() => {
-    fetchPrices();
-    const id = setInterval(fetchPrices, 30_000);
-    return () => clearInterval(id);
-  }, [fetchPrices]);
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) { setSearchResults([]); setShowDropdown(false); return; }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`);
-        const data = await res.json();
-        setSearchResults((data.data ?? []).slice(0, 8));
-        setShowDropdown(true);
-      } catch {
-        setSearchResults([]);
+        setLivePrices(prev => ({ ...prev, [sym]: null }));
       } finally {
-        setSearching(false);
+        setLoadingPrices(prev => ({ ...prev, [sym]: false }));
       }
-    }, 350);
-  }, [query]);
+    }));
+  }, [slots]);
 
   useEffect(() => {
-    function handle(e: MouseEvent) {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowDropdown(false);
+    fetchLivePrices();
+    const id = setInterval(fetchLivePrices, 30_000);
+    return () => clearInterval(id);
+  }, [fetchLivePrices]);
+
+  /* ── Entry price edit ── */
+  function startEdit(key: string, current?: number) {
+    setEditingKey(key);
+    setEditVal(current ? String(current) : "");
+  }
+
+  function commitEdit(key: string) {
+    const val = parseFloat(editVal);
+    if (!isNaN(val) && val > 0) {
+      const updated = { ...entryPrices, [key]: val };
+      setEntryPrices(updated);
+      saveEntryPrices(updated);
     }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, []);
+    setEditingKey(null);
+  }
 
-  async function selectSymbol(r: SearchResult) {
-    setSelectedSymbol(r.symbol);
-    setSelectedName(r.instrument_name);
-    setQuery(r.symbol);
-    setShowDropdown(false);
-    setSelectedLivePrice(null);
-    setFetchingLive(true);
-    try {
-      const res = await fetch(`/api/price/${encodeURIComponent(r.symbol)}`);
-      const data = await res.json();
-      const price = parseFloat(data.price);
-      setSelectedLivePrice(isNaN(price) ? null : price);
-      setBuyPrice(isNaN(price) ? "" : String(price));
-    } catch {
-      setSelectedLivePrice(null);
-    } finally {
-      setFetchingLive(false);
+  /* ── Totals ── */
+  let totalAllocated = 0, totalCurrentValue = 0, totalPnl = 0;
+  slots.forEach(slot => {
+    const ep = entryPrices[slot.symbol];
+    const lp = livePrices[slot.symbol];
+    totalAllocated += slot.allocated;
+    if (ep && lp) {
+      const lot = slot.allocated / ep;
+      const val = lot * lp;
+      totalCurrentValue += val;
+      totalPnl += val - slot.allocated;
+    } else {
+      totalCurrentValue += slot.allocated;
     }
-  }
-
-  function calcPosition(p: Position) {
-    const livePrice = prices[p.symbol]?.price ?? 0;
-    const cost = p.qty * p.buyPrice;
-    const value = p.qty * livePrice;
-    const pnl = value - cost;
-    const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-    return { cost, value, pnl, pnlPct, livePrice };
-  }
-
-  const totalCost   = positions.reduce((s, p) => s + p.qty * p.buyPrice, 0);
-  const totalValue  = positions.reduce((s, p) => s + (prices[p.symbol]?.price ?? p.buyPrice) * p.qty, 0);
-  const totalPnl    = totalValue - totalCost;
-  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
-  const cashLeft    = INITIAL_CAPITAL - totalCost;
-  const portfValue  = cashLeft + totalValue;
-  const portfPnl    = portfValue - INITIAL_CAPITAL;
-  const portfPnlPct = (portfPnl / INITIAL_CAPITAL) * 100;
-
-  function openAdd() {
-    setEditId(null);
-    setQuery(""); setSelectedSymbol(""); setSelectedName(""); setSelectedLivePrice(null);
-    setQty(""); setBuyPrice(""); setBuyDate(new Date().toISOString().split("T")[0]); setNote("");
-    setShowForm(true);
-  }
-
-  function openEdit(p: Position) {
-    setEditId(p.id);
-    setQuery(p.symbol); setSelectedSymbol(p.symbol); setSelectedName(p.instrumentName ?? p.symbol);
-    setQty(String(p.qty)); setBuyPrice(String(p.buyPrice)); setBuyDate(p.buyDate); setNote(p.note);
-    setSelectedLivePrice(prices[p.symbol]?.price ?? null);
-    setShowForm(true);
-  }
-
-  function saveForm() {
-    if (!selectedSymbol || !qty || !buyPrice) return;
-    const pos: Position = {
-      id: editId ?? uid(),
-      symbol: selectedSymbol,
-      instrumentName: selectedName || selectedSymbol,
-      qty: parseFloat(qty),
-      buyPrice: parseFloat(buyPrice),
-      buyDate,
-      note,
-    };
-    setPositions(prev => editId ? prev.map(p => p.id === editId ? pos : p) : [...prev, pos]);
-    setShowForm(false);
-  }
-
-  function deletePos(id: string) {
-    setPositions(prev => prev.filter(p => p.id !== id));
-  }
-
-  const cost2 = selectedSymbol && qty && buyPrice ? parseFloat(qty) * parseFloat(buyPrice) : 0;
+  });
+  const totalPnlPct = totalAllocated > 0 ? (totalPnl / totalAllocated) * 100 : 0;
+  const portfValue = (totalCapital - totalAllocated) + totalCurrentValue;
+  const portfPnlPct = (portfValue - totalCapital) / totalCapital * 100;
 
   return (
     <div className="min-h-screen" style={{ background: "#0A0A0A" }}>
+      {/* Nav */}
       <nav className="sticky top-0 z-20 flex items-center justify-between px-5 h-13"
-        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "0.5px solid rgba(255,255,255,0.07)" }}>
+        style={{ background: "rgba(10,10,10,0.92)", backdropFilter: "blur(20px)", borderBottom: "0.5px solid rgba(255,255,255,0.07)" }}>
         <div className="flex items-center gap-4">
           <img src="/kurtlogo.png" alt="Logo" className="h-10 w-auto" />
           <div className="flex items-center gap-1 text-[13px]">
@@ -276,12 +187,13 @@ export default function PositionsPage() {
       </nav>
 
       <main className="max-w-5xl mx-auto px-5 py-8 space-y-6">
+        {/* ── Özet Kartlar ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { label: "Başlangıç Sermaye", value: `$${fmt(INITIAL_CAPITAL)}`, sub: "USD", color: "#636366" },
-            { label: "Portföy Değeri", value: `$${fmt(portfValue)}`, sub: portfPnlPct >= 0 ? `+${fmt(portfPnlPct)}%` : `${fmt(portfPnlPct)}%`, color: portfPnlPct >= 0 ? "#30D158" : "#FF453A" },
-            { label: "Toplam Kâr/Zarar", value: (portfPnl >= 0 ? "+" : "") + `$${fmt(Math.abs(portfPnl))}`, sub: portfPnlPct >= 0 ? `+${fmt(portfPnlPct)}%` : `${fmt(portfPnlPct)}%`, color: portfPnl >= 0 ? "#30D158" : "#FF453A" },
-            { label: "Nakit", value: `$${fmt(Math.max(cashLeft, 0))}`, sub: cashLeft < 0 ? "⚠️ Limit aşıldı" : "kullanılabilir", color: cashLeft < 0 ? "#FF9F0A" : "#636366" },
+            { label: "Başlangıç Sermaye", value: `$${fmt(totalCapital)}`, sub: "USD", color: "#636366" },
+            { label: "Portföy Değeri",    value: `$${fmt(portfValue)}`,   sub: (portfPnlPct >= 0 ? "+" : "") + fmt(portfPnlPct) + "%", color: portfPnlPct >= 0 ? "#30D158" : "#FF453A" },
+            { label: "Yatırılan",         value: `$${fmt(totalAllocated)}`, sub: "pozisyonlara", color: "#636366" },
+            { label: "Toplam K/Z",        value: (totalPnl >= 0 ? "+" : "") + `$${fmt(Math.abs(totalPnl))}`, sub: (totalPnlPct >= 0 ? "+" : "") + fmt(totalPnlPct) + "%", color: totalPnl >= 0 ? "#30D158" : "#FF453A" },
           ].map(card => (
             <div key={card.label} className="rounded-[14px] px-4 py-4"
               style={{ background: "#1C1C1E", border: "0.5px solid rgba(255,255,255,0.07)" }}>
@@ -292,323 +204,138 @@ export default function PositionsPage() {
           ))}
         </div>
 
-        {/* ── Strateji Tablosu ── */}
-        {strategy.length > 0 && (
-          <div className="space-y-2">
-            <h2 className="text-[16px] font-bold" style={{ color: "#E5E5EA" }}>
-              Strateji Dağılımı
-              <span className="ml-2 text-[12px] font-normal" style={{ color: "#636366" }}>
-                ${fmt(strategy.reduce((s, r) => s + Number(r.amount_usd), 0))} toplam
-              </span>
-            </h2>
-            <div className="rounded-[16px] overflow-hidden" style={{ border: "0.5px solid rgba(255,255,255,0.07)" }}>
-              <table className="w-full text-[13px] border-collapse">
-                <thead>
-                  <tr style={{ background: "#2C2C2E" }}>
-                    {["Kategori", "Kağıt(lar)", "Ayrılan", "Borsa", "Anlık Fiyat", "Hesaplanan Lot", "Tahmini Değer"].map(h => (
-                      <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {strategy.map((row, i) => {
-                    const syms = row.symbols.split(",").map(s => s.trim());
-                    const catColors: Record<string, string> = { Safe: "#30D158", Growth: "#0A84FF", Extreme: "#FF9F0A" };
-                    const catColor = catColors[row.category] ?? "#AEAEB2";
-                    // Split amount equally among symbols
-                    const amtPerSym = Number(row.amount_usd) / syms.length;
-                    return (
-                      <tr key={row.id} style={{ background: i % 2 === 0 ? "#141414" : "#1A1A1A", borderTop: "0.5px solid rgba(255,255,255,0.04)" }}>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] text-[12px] font-semibold"
-                            style={{ background: catColor + "18", color: catColor, border: `0.5px solid ${catColor}33` }}>
-                            %{row.category_pct} {row.category}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {syms.map(s => <SymbolBadge key={s} symbol={s} size={22} />)}
-                            <span className="text-[12px]" style={{ color: "#E5E5EA" }}>{syms.join(" + ")}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#E5E5EA" }}>${fmt(Number(row.amount_usd))}</td>
-                        <td className="px-4 py-3 text-[12px]" style={{ color: "#AEAEB2" }}>{row.broker}</td>
-                        <td className="px-4 py-3">
-                          {syms.map(s => (
-                            <div key={s} className="text-[12px] font-mono" style={{ color: stratPrices[s] ? "#E5E5EA" : "#3A3A3C" }}>
-                              {stratPrices[s] ? `${s}: $${fmt(stratPrices[s], 2)}` : `${s}: …`}
-                            </div>
-                          ))}
-                        </td>
-                        <td className="px-4 py-3">
-                          {syms.map(s => {
-                            const p = stratPrices[s];
-                            const lot = p ? amtPerSym / p : null;
-                            return (
-                              <div key={s} className="text-[12px] font-mono font-semibold" style={{ color: lot ? "#A29BFF" : "#3A3A3C" }}>
-                                {lot ? `${s}: ${fmt(lot, 4)}` : `${s}: …`}
-                              </div>
-                            );
-                          })}
-                        </td>
-                        <td className="px-4 py-3">
-                          {syms.map(s => {
-                            const p = stratPrices[s];
-                            const val = p ? amtPerSym : null;
-                            return (
-                              <div key={s} className="text-[12px] font-mono" style={{ color: "#E5E5EA" }}>
-                                {val ? `$${fmt(val)}` : "…"}
-                              </div>
-                            );
-                          })}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between">
-          <h2 className="text-[16px] font-bold" style={{ color: "#E5E5EA" }}>
-            Pozisyonlar
-            <span className="ml-2 text-[12px] font-normal" style={{ color: "#636366" }}>{positions.length} işlem</span>
-          </h2>
-          <button onClick={openAdd}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] text-[12px] font-semibold"
-            style={{ background: "#5856D6", color: "#fff" }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-            Pozisyon Ekle
-          </button>
+        {/* ── Notlar ── */}
+        <div className="rounded-[12px] px-4 py-3 text-[12px]"
+          style={{ background: "rgba(88,86,214,0.08)", border: "0.5px solid rgba(88,86,214,0.2)", color: "#A29BFF" }}>
+          Giriş fiyatını girmek için ilgili hücreye tıkla → lot = ayrılan tutar ÷ giriş fiyatı → canlı K/Z otomatik hesaplanır
         </div>
 
-        {positions.length === 0 ? (
-          <div className="rounded-[16px] py-16 flex flex-col items-center gap-3"
-            style={{ background: "#1C1C1E", border: "0.5px solid rgba(255,255,255,0.07)" }}>
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#3A3A3C" strokeWidth="1.5" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-            <p className="text-[14px]" style={{ color: "#48484A" }}>Henüz pozisyon yok</p>
-            <button onClick={openAdd} className="text-[12px] px-4 py-1.5 rounded-[8px]"
-              style={{ background: "rgba(88,86,214,0.15)", color: "#A29BFF", border: "0.5px solid rgba(88,86,214,0.3)" }}>
-              İlk pozisyonu ekle
-            </button>
+        {/* ── Ana Tablo ── */}
+        {slots.length === 0 ? (
+          <div className="rounded-[16px] py-12 text-center" style={{ background: "#1C1C1E" }}>
+            <p style={{ color: "#48484A" }}>Strateji yükleniyor…</p>
           </div>
         ) : (
           <div className="rounded-[16px] overflow-hidden" style={{ border: "0.5px solid rgba(255,255,255,0.07)" }}>
             <table className="w-full text-[13px] border-collapse">
               <thead>
                 <tr style={{ background: "#2C2C2E" }}>
-                  {["Sembol", "Adet", "Alış", "Anlık", "Maliyet", "Değer", "Kâr / Zarar", ""].map(h => (
+                  {["Kategori", "Sembol", "Borsa", "Ayrılan", "Giriş Fiyatı", "Lot", "Anlık Fiyat", "Anlık Değer", "K / Z"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {positions.map((p, i) => {
-                  const { cost, value, pnl, pnlPct, livePrice } = calcPosition(p);
-                  const isLoading = prices[p.symbol]?.loading;
+                {slots.map((slot, i) => {
+                  const ep = entryPrices[slot.symbol];
+                  const lp = livePrices[slot.symbol];
+                  const loading = loadingPrices[slot.symbol];
+                  const lot = ep ? slot.allocated / ep : null;
+                  const currentVal = (lot !== null && lp) ? lot * lp : null;
+                  const pnl = currentVal !== null ? currentVal - slot.allocated : null;
+                  const pnlPct = pnl !== null ? (pnl / slot.allocated) * 100 : null;
+                  const cc = CAT_COLOR[slot.category] ?? "#AEAEB2";
+                  const key = slot.symbol;
+                  const isEditing = editingKey === key;
+
                   return (
-                    <tr key={p.id} style={{ background: i % 2 === 0 ? "#141414" : "#1A1A1A", borderTop: "0.5px solid rgba(255,255,255,0.04)" }}>
+                    <tr key={`${slot.rowId}-${slot.symbol}`}
+                      style={{ background: i % 2 === 0 ? "#141414" : "#1A1A1A", borderTop: "0.5px solid rgba(255,255,255,0.04)" }}>
+                      {/* Kategori */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <SymbolBadge symbol={p.symbol} size={30} />
-                          <div>
-                            <p className="font-semibold" style={{ color: "#E5E5EA" }}>{p.symbol}</p>
-                            <p className="text-[10px]" style={{ color: "#636366" }}>{p.instrumentName ?? p.symbol}{p.note ? ` · ${p.note}` : ""}</p>
-                          </div>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[6px] text-[11px] font-semibold"
+                          style={{ background: cc + "18", color: cc, border: `0.5px solid ${cc}33` }}>
+                          %{slot.category_pct} {slot.category}
+                        </span>
+                      </td>
+                      {/* Sembol */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Badge symbol={slot.symbol} size={26} />
+                          <span className="font-semibold" style={{ color: "#E5E5EA" }}>{slot.symbol}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-mono" style={{ color: "#E5E5EA" }}>{fmt(p.qty, 4).replace(/\.?0+$/, "")}</td>
-                      <td className="px-4 py-3 font-mono" style={{ color: "#AEAEB2" }}>${fmt(p.buyPrice, 4)}</td>
+                      {/* Borsa */}
+                      <td className="px-4 py-3 text-[12px]" style={{ color: "#636366" }}>{slot.broker}</td>
+                      {/* Ayrılan */}
+                      <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#AEAEB2" }}>${fmt(slot.allocated)}</td>
+                      {/* Giriş Fiyatı — editable */}
+                      <td className="px-4 py-3">
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            type="number" step="any"
+                            value={editVal}
+                            onChange={e => setEditVal(e.target.value)}
+                            onBlur={() => commitEdit(key)}
+                            onKeyDown={e => { if (e.key === "Enter") commitEdit(key); if (e.key === "Escape") setEditingKey(null); }}
+                            className="w-24 px-2 py-1 rounded-[6px] text-[12px] font-mono outline-none"
+                            style={{ background: "#2C2C2E", color: "#E5E5EA", border: "0.5px solid #5856D6" }}
+                          />
+                        ) : (
+                          <button
+                            onClick={() => startEdit(key, ep)}
+                            className="text-[12px] font-mono px-2 py-1 rounded-[6px] transition-all hover:opacity-80"
+                            style={ep
+                              ? { color: "#E5E5EA", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.1)" }
+                              : { color: "#5856D6", background: "rgba(88,86,214,0.12)", border: "0.5px solid rgba(88,86,214,0.3)" }
+                            }>
+                            {ep ? `$${fmt(ep, 4)}` : "+ Fiyat gir"}
+                          </button>
+                        )}
+                      </td>
+                      {/* Lot */}
+                      <td className="px-4 py-3 font-mono" style={{ color: lot ? "#A29BFF" : "#3A3A3C" }}>
+                        {lot ? fmt(lot, 4) : "—"}
+                      </td>
+                      {/* Anlık Fiyat */}
                       <td className="px-4 py-3 font-mono" style={{ color: "#E5E5EA" }}>
-                        {isLoading ? <span style={{ color: "#3A3A3C" }}>…</span> : `$${fmt(livePrice, 4)}`}
+                        {loading ? <span style={{ color: "#3A3A3C" }}>…</span> : lp ? `$${fmt(lp, 4)}` : <span style={{ color: "#3A3A3C" }}>—</span>}
                       </td>
-                      <td className="px-4 py-3 font-mono" style={{ color: "#AEAEB2" }}>${fmt(cost)}</td>
-                      <td className="px-4 py-3 font-mono" style={{ color: "#E5E5EA" }}>${fmt(value)}</td>
-                      <td className="px-4 py-3">
-                        <p className="font-semibold font-mono" style={{ color: pnl >= 0 ? "#30D158" : "#FF453A" }}>{pnl >= 0 ? "+" : ""}{fmt(pnl)} $</p>
-                        <p className="text-[11px] font-mono" style={{ color: pnl >= 0 ? "#30D158" : "#FF453A" }}>{pnlPct >= 0 ? "+" : ""}{fmt(pnlPct)}%</p>
+                      {/* Anlık Değer */}
+                      <td className="px-4 py-3 font-mono font-semibold" style={{ color: currentVal ? "#E5E5EA" : "#3A3A3C" }}>
+                        {currentVal ? `$${fmt(currentVal)}` : "—"}
                       </td>
+                      {/* K/Z */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => openEdit(p)} className="p-1.5 rounded-md hover:bg-white/10 transition-all">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#636366" strokeWidth="2" strokeLinecap="round">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                            </svg>
-                          </button>
-                          <button onClick={() => deletePos(p.id)} className="p-1.5 rounded-md hover:bg-red-500/20 transition-all">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#636366" strokeWidth="2" strokeLinecap="round">
-                              <path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/>
-                            </svg>
-                          </button>
-                        </div>
+                        {pnl !== null && pnlPct !== null ? (
+                          <>
+                            <p className="font-semibold font-mono text-[13px]" style={{ color: pnl >= 0 ? "#30D158" : "#FF453A" }}>
+                              {pnl >= 0 ? "+" : ""}{fmt(pnl)} $
+                            </p>
+                            <p className="text-[11px] font-mono" style={{ color: pnl >= 0 ? "#30D158" : "#FF453A" }}>
+                              {pnlPct >= 0 ? "+" : ""}{fmt(pnlPct)}%
+                            </p>
+                          </>
+                        ) : (
+                          <span className="text-[12px]" style={{ color: "#3A3A3C" }}>—</span>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
+              {/* Toplam */}
               <tfoot>
-                <tr style={{ background: "#2C2C2E", borderTop: "0.5px solid rgba(255,255,255,0.1)" }}>
-                  <td className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>TOPLAM</td>
+                <tr style={{ background: "#2C2C2E", borderTop: "0.5px solid rgba(255,255,255,0.12)" }}>
+                  <td colSpan={3} className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>TOPLAM</td>
+                  <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#E5E5EA" }}>${fmt(totalAllocated)}</td>
                   <td colSpan={3} />
-                  <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#E5E5EA" }}>${fmt(totalCost)}</td>
-                  <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#E5E5EA" }}>${fmt(totalValue)}</td>
+                  <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#E5E5EA" }}>${fmt(totalCurrentValue)}</td>
                   <td className="px-4 py-3">
-                    <p className="font-bold font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>{totalPnl >= 0 ? "+" : ""}{fmt(totalPnl)} $</p>
-                    <p className="text-[11px] font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>{totalPnlPct >= 0 ? "+" : ""}{fmt(totalPnlPct)}%</p>
+                    <p className="font-bold font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>
+                      {totalPnl >= 0 ? "+" : ""}{fmt(totalPnl)} $
+                    </p>
+                    <p className="text-[11px] font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>
+                      {totalPnlPct >= 0 ? "+" : ""}{fmt(totalPnlPct)}%
+                    </p>
                   </td>
-                  <td />
                 </tr>
               </tfoot>
             </table>
           </div>
         )}
       </main>
-
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(10px)" }}
-          onClick={e => { if (e.target === e.currentTarget) setShowForm(false); }}>
-          <div className="w-full max-w-md rounded-[20px] p-6 space-y-4"
-            style={{ background: "#1C1C1E", border: "0.5px solid rgba(255,255,255,0.1)" }}>
-            <h3 className="text-[16px] font-bold" style={{ color: "#E5E5EA" }}>
-              {editId ? "Pozisyonu Düzenle" : "Yeni Pozisyon"}
-            </h3>
-
-            <div className="space-y-1.5" ref={searchRef}>
-              <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>Kağıt Ara</label>
-              <div className="relative">
-                <div className="flex items-center gap-2 px-3 py-2 rounded-[10px]"
-                  style={{ background: "#2C2C2E", border: `0.5px solid ${selectedSymbol ? symbolColor(selectedSymbol) + "55" : "rgba(255,255,255,0.1)"}` }}>
-                  {selectedSymbol && <SymbolBadge symbol={selectedSymbol} size={24} />}
-                  <input
-                    autoFocus
-                    placeholder="AAPL, BTC, XAU/USD, EUR/USD…"
-                    value={query}
-                    onChange={e => { setQuery(e.target.value); if (selectedSymbol && e.target.value !== selectedSymbol) { setSelectedSymbol(""); setSelectedName(""); setSelectedLivePrice(null); } }}
-                    onFocus={() => searchResults.length > 0 && setShowDropdown(true)}
-                    className="flex-1 bg-transparent outline-none text-[13px]"
-                    style={{ color: "#E5E5EA" }}
-                  />
-                  {searching && (
-                    <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#636366" strokeWidth="2">
-                      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                    </svg>
-                  )}
-                </div>
-
-                {showDropdown && searchResults.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-1 rounded-[12px] overflow-hidden z-10"
-                    style={{ background: "#2C2C2E", border: "0.5px solid rgba(255,255,255,0.1)", boxShadow: "0 16px 40px rgba(0,0,0,0.6)" }}>
-                    {searchResults.map(r => (
-                      <button key={r.symbol + r.exchange}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/5 transition-all"
-                        onClick={() => selectSymbol(r)}>
-                        <SymbolBadge symbol={r.symbol} size={28} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold" style={{ color: "#E5E5EA" }}>{r.symbol}</p>
-                          <p className="text-[11px] truncate" style={{ color: "#636366" }}>{r.instrument_name} · {r.exchange}</p>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-[4px]"
-                          style={{ background: "rgba(255,255,255,0.07)", color: "#636366" }}>
-                          {r.instrument_type?.replace("Common Stock","Hisse").replace("Digital Currency","Kripto")}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {selectedSymbol && (
-                <div className="flex items-center gap-3 px-3 py-2.5 rounded-[10px]"
-                  style={{ background: symbolColor(selectedSymbol) + "11", border: `0.5px solid ${symbolColor(selectedSymbol)}33` }}>
-                  <SymbolBadge symbol={selectedSymbol} size={32} />
-                  <div className="flex-1">
-                    <p className="text-[13px] font-semibold" style={{ color: "#E5E5EA" }}>{selectedSymbol}</p>
-                    <p className="text-[11px]" style={{ color: "#636366" }}>{selectedName}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[11px]" style={{ color: "#636366" }}>Anlık Fiyat</p>
-                    {fetchingLive ? (
-                      <p className="text-[14px] font-bold" style={{ color: "#636366" }}>…</p>
-                    ) : selectedLivePrice !== null ? (
-                      <p className="text-[15px] font-bold" style={{ color: "#30D158" }}>${fmt(selectedLivePrice, 4)}</p>
-                    ) : (
-                      <p className="text-[12px]" style={{ color: "#FF9F0A" }}>fiyat yok</p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>Adet / Lot</label>
-                <input type="number" step="any" placeholder="0.01" value={qty}
-                  onChange={e => setQty(e.target.value)}
-                  className="w-full px-3 py-2 rounded-[9px] text-[13px] outline-none"
-                  style={{ background: "#2C2C2E", color: "#E5E5EA", border: "0.5px solid rgba(255,255,255,0.1)" }} />
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>Alış Fiyatı ($)</label>
-                  {selectedLivePrice !== null && (
-                    <button onClick={() => setBuyPrice(String(selectedLivePrice))}
-                      className="text-[10px] px-1.5 py-0.5 rounded-[4px]"
-                      style={{ background: "rgba(48,209,88,0.15)", color: "#30D158" }}>
-                      Anlık Kullan
-                    </button>
-                  )}
-                </div>
-                <input type="number" step="any" placeholder="0.00" value={buyPrice}
-                  onChange={e => setBuyPrice(e.target.value)}
-                  className="w-full px-3 py-2 rounded-[9px] text-[13px] outline-none"
-                  style={{ background: "#2C2C2E", color: "#E5E5EA", border: "0.5px solid rgba(255,255,255,0.1)" }} />
-              </div>
-            </div>
-
-            {cost2 > 0 && (
-              <div className="px-3 py-2 rounded-[9px]" style={{ background: "rgba(88,86,214,0.1)", border: "0.5px solid rgba(88,86,214,0.2)" }}>
-                <p className="text-[12px]" style={{ color: "#A29BFF" }}>
-                  Toplam maliyet: <span className="font-bold">${fmt(cost2)}</span>
-                  {cashLeft - cost2 < 0 && !editId && <span className="ml-2" style={{ color: "#FF9F0A" }}>⚠️ Nakit yetersiz</span>}
-                </p>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>Alış Tarihi</label>
-                <input type="date" value={buyDate} onChange={e => setBuyDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-[9px] text-[13px] outline-none"
-                  style={{ background: "#2C2C2E", color: "#E5E5EA", border: "0.5px solid rgba(255,255,255,0.1)", colorScheme: "dark" }} />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>Not (opsiyonel)</label>
-                <input type="text" placeholder="serbest not…" value={note}
-                  onChange={e => setNote(e.target.value)}
-                  className="w-full px-3 py-2 rounded-[9px] text-[13px] outline-none"
-                  style={{ background: "#2C2C2E", color: "#E5E5EA", border: "0.5px solid rgba(255,255,255,0.1)" }} />
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <button onClick={() => setShowForm(false)}
-                className="flex-1 py-2 rounded-[9px] text-[13px] font-medium"
-                style={{ background: "#2C2C2E", color: "#AEAEB2" }}>
-                İptal
-              </button>
-              <button onClick={saveForm}
-                disabled={!selectedSymbol || !qty || !buyPrice}
-                className="flex-1 py-2 rounded-[9px] text-[13px] font-semibold"
-                style={{ background: !selectedSymbol || !qty || !buyPrice ? "#2C2C2E" : "#5856D6", color: !selectedSymbol || !qty || !buyPrice ? "#636366" : "#fff" }}>
-                {editId ? "Kaydet" : "Ekle"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
