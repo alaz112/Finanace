@@ -67,8 +67,6 @@ export default function PositionsPage() {
   const [livePrices, setLivePrices] = useState<Record<string, number | null>>({});
   const [loadingPrices, setLoadingPrices] = useState<Record<string, boolean>>({});
   const [entryPrices, setEntryPrices] = useState<Record<string, number>>({});
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [editVal, setEditVal] = useState("");
   const totalCapital = 5000;
 
   /* ── Auth ── */
@@ -132,20 +130,26 @@ export default function PositionsPage() {
     return () => clearInterval(id);
   }, [fetchLivePrices]);
 
-  /* ── Entry price edit ── */
-  function startEdit(key: string, current?: number) {
-    setEditingKey(key);
-    setEditVal(current ? String(current) : "");
-  }
-
-  function commitEdit(key: string) {
-    const val = parseFloat(editVal);
-    if (!isNaN(val) && val > 0) {
-      const updated = { ...entryPrices, [key]: val };
-      setEntryPrices(updated);
-      saveEntryPrices(updated);
+  /* ── Auto-save live price as entry if not yet set ── */
+  useEffect(() => {
+    if (!slots.length) return;
+    const ep = loadEntryPrices();
+    let changed = false;
+    for (const [sym, price] of Object.entries(livePrices)) {
+      if (price !== null && ep[sym] === undefined) {
+        ep[sym] = price;
+        changed = true;
+      }
     }
-    setEditingKey(null);
+    if (changed) {
+      setEntryPrices({ ...ep });
+      saveEntryPrices(ep);
+    }
+  }, [livePrices, slots]);
+
+  function resetEntryPrices() {
+    localStorage.removeItem(ENTRY_KEY);
+    setEntryPrices({});
   }
 
   /* ── Totals ── */
@@ -204,10 +208,13 @@ export default function PositionsPage() {
           ))}
         </div>
 
-        {/* ── Notlar ── */}
-        <div className="rounded-[12px] px-4 py-3 text-[12px]"
-          style={{ background: "rgba(88,86,214,0.08)", border: "0.5px solid rgba(88,86,214,0.2)", color: "#A29BFF" }}>
-          Giriş fiyatını girmek için ilgili hücreye tıkla → lot = ayrılan tutar ÷ giriş fiyatı → canlı K/Z otomatik hesaplanır
+        {/* ── Sıfırla ── */}
+        <div className="flex justify-end">
+          <button onClick={resetEntryPrices}
+            className="text-[12px] px-3 py-1.5 rounded-[8px] hover:opacity-80 transition-opacity"
+            style={{ background: "rgba(255,69,58,0.1)", color: "#FF453A", border: "0.5px solid rgba(255,69,58,0.25)" }}>
+            ↺ Giriş fiyatlarını sıfırla
+          </button>
         </div>
 
         {/* ── Ana Tablo ── */}
@@ -236,7 +243,6 @@ export default function PositionsPage() {
                   const pnlPct = pnl !== null ? (pnl / slot.allocated) * 100 : null;
                   const cc = CAT_COLOR[slot.category] ?? "#AEAEB2";
                   const key = slot.symbol;
-                  const isEditing = editingKey === key;
 
                   return (
                     <tr key={`${slot.rowId}-${slot.symbol}`}
@@ -259,30 +265,9 @@ export default function PositionsPage() {
                       <td className="px-4 py-3 text-[12px]" style={{ color: "#636366" }}>{slot.broker}</td>
                       {/* Ayrılan */}
                       <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#AEAEB2" }}>${fmt(slot.allocated)}</td>
-                      {/* Giriş Fiyatı — editable */}
-                      <td className="px-4 py-3">
-                        {isEditing ? (
-                          <input
-                            autoFocus
-                            type="number" step="any"
-                            value={editVal}
-                            onChange={e => setEditVal(e.target.value)}
-                            onBlur={() => commitEdit(key)}
-                            onKeyDown={e => { if (e.key === "Enter") commitEdit(key); if (e.key === "Escape") setEditingKey(null); }}
-                            className="w-24 px-2 py-1 rounded-[6px] text-[12px] font-mono outline-none"
-                            style={{ background: "#2C2C2E", color: "#E5E5EA", border: "0.5px solid #5856D6" }}
-                          />
-                        ) : (
-                          <button
-                            onClick={() => startEdit(key, ep)}
-                            className="text-[12px] font-mono px-2 py-1 rounded-[6px] transition-all hover:opacity-80"
-                            style={ep
-                              ? { color: "#E5E5EA", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.1)" }
-                              : { color: "#5856D6", background: "rgba(88,86,214,0.12)", border: "0.5px solid rgba(88,86,214,0.3)" }
-                            }>
-                            {ep ? `$${fmt(ep, 4)}` : "+ Fiyat gir"}
-                          </button>
-                        )}
+                      {/* Giriş Fiyatı — otomatik */}
+                      <td className="px-4 py-3 font-mono text-[12px]" style={{ color: ep ? "#E5E5EA" : "#3A3A3C" }}>
+                        {loading ? <span style={{ color: "#3A3A3C" }}>…</span> : ep ? `$${fmt(ep, 4)}` : "—"}
                       </td>
                       {/* Lot */}
                       <td className="px-4 py-3 font-mono" style={{ color: lot ? "#A29BFF" : "#3A3A3C" }}>
