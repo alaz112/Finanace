@@ -117,7 +117,7 @@ def init_db():
     if row and row["cnt"] == 0:
         conn.execute("""
             INSERT INTO portfolio_strategy (category, category_pct, symbols, amount_usd, broker) VALUES
-            ('Safe',    20, 'ASELS,THYAO', 1000, 'Garanti'),
+            ('Safe',    20, 'BIST30',      1000, 'Garanti'),
             ('Growth',  60, 'NVDA,SMH',   3000, 'Midas'),
             ('Extreme', 20, 'LUNR',        1000, 'Midas')
         """)
