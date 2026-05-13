@@ -143,7 +143,7 @@ function ChartPanel({ result, config, onConfigChange }: {
                 <Pie data={chartData.slice(0, 12)}
                   dataKey={config.yCols[0] ?? numericCols[0] ?? result.columns[1]}
                   nameKey={config.xCol} cx="50%" cy="50%" outerRadius={110}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`} labelLine={false}>
+                  label={({ name, percent }: { name: string; percent?: number }) => `${name}: ${((percent ?? 0) * 100).toFixed(1)}%`} labelLine={false}>
                   {chartData.slice(0, 12).map((_, i) => <PieCell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ background: "#1C1C1E", border: "0.5px solid #3A3A3C", borderRadius: 8, fontSize: 11 }} />
