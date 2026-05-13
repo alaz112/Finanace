@@ -96,10 +96,32 @@ def init_db():
         """
         CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol_interval_dt
             ON ohlcv_history(symbol, interval, dt)""",
+        """
+        CREATE TABLE IF NOT EXISTS portfolio_strategy (
+            id           SERIAL PRIMARY KEY,
+            category     TEXT NOT NULL,
+            category_pct INTEGER,
+            symbols      TEXT NOT NULL,
+            amount_usd   NUMERIC(12,2),
+            broker       TEXT,
+            note         TEXT,
+            UNIQUE(category)
+        )""",
     ]
     for stmt in stmts:
         conn.execute(stmt)
     conn.commit()
+    # Seed default strategy rows (only if empty)
+    cur = conn.execute("SELECT COUNT(*) as cnt FROM portfolio_strategy")
+    row = cur.fetchone()
+    if row and row["cnt"] == 0:
+        conn.execute("""
+            INSERT INTO portfolio_strategy (category, category_pct, symbols, amount_usd, broker) VALUES
+            ('Safe',    20, 'ASELS,THYAO', 1000, 'Garanti'),
+            ('Growth',  60, 'NVDA,SMH',   3000, 'Midas'),
+            ('Extreme', 20, 'LUNR',        1000, 'Midas')
+        """)
+        conn.commit()
     conn.close()
 
 # ─── Twelve Data helpers ───────────────────────────────────────────────────
@@ -744,3 +766,39 @@ async def load_history_to_db():
         "results": results,
         "errors": errors,
     }
+
+
+# ─── Portfolio Strategy ───────────────────────────────────────────────────
+@app.get("/api/strategy")
+def get_strategy():
+    conn = get_db()
+    cur = conn.execute("SELECT * FROM portfolio_strategy ORDER BY id")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return {"rows": rows}
+
+
+@app.post("/api/strategy")
+async def upsert_strategy(request: Request):
+    body = await request.json()
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO portfolio_strategy (category, category_pct, symbols, amount_usd, broker, note)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (category) DO UPDATE SET
+            category_pct = EXCLUDED.category_pct,
+            symbols      = EXCLUDED.symbols,
+            amount_usd   = EXCLUDED.amount_usd,
+            broker       = EXCLUDED.broker,
+            note         = EXCLUDED.note
+    """, (
+        body.get("category"),
+        body.get("category_pct"),
+        body.get("symbols"),
+        body.get("amount_usd"),
+        body.get("broker"),
+        body.get("note"),
+    ))
+    conn.commit()
+    conn.close()
+    return {"status": "ok"}

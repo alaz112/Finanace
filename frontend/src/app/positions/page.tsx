@@ -28,6 +28,16 @@ interface SearchResult {
   currency: string;
 }
 
+interface StrategyRow {
+  id: number;
+  category: string;
+  category_pct: number;
+  symbols: string;   // comma-separated e.g. "NVDA,SMH"
+  amount_usd: number;
+  broker: string;
+  note: string | null;
+}
+
 const INITIAL_CAPITAL = 5000;
 const STORAGE_KEY = "finance_positions_v2";
 
@@ -64,6 +74,10 @@ export default function PositionsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
 
+  // Strategy
+  const [strategy, setStrategy] = useState<StrategyRow[]>([]);
+  const [stratPrices, setStratPrices] = useState<Record<string, number>>({});
+
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -84,6 +98,28 @@ export default function PositionsPage() {
   useEffect(() => {
     if (sessionStorage.getItem("auth") !== "1") router.replace("/login");
   }, [router]);
+
+  // Fetch strategy from DB
+  useEffect(() => {
+    fetch("/api/strategy")
+      .then(r => r.json())
+      .then(d => setStrategy(d.rows ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Fetch strategy symbol prices
+  useEffect(() => {
+    if (!strategy.length) return;
+    const syms = Array.from(new Set(strategy.flatMap(r => r.symbols.split(",").map(s => s.trim()))));
+    syms.forEach(async sym => {
+      try {
+        const res = await fetch(`/api/price/${encodeURIComponent(sym)}`);
+        const data = await res.json();
+        const p = parseFloat(data.price);
+        if (!isNaN(p)) setStratPrices(prev => ({ ...prev, [sym]: p }));
+      } catch {}
+    });
+  }, [strategy]);
 
   useEffect(() => {
     try {
@@ -255,6 +291,85 @@ export default function PositionsPage() {
             </div>
           ))}
         </div>
+
+        {/* ── Strateji Tablosu ── */}
+        {strategy.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-[16px] font-bold" style={{ color: "#E5E5EA" }}>
+              Strateji Dağılımı
+              <span className="ml-2 text-[12px] font-normal" style={{ color: "#636366" }}>
+                ${fmt(strategy.reduce((s, r) => s + Number(r.amount_usd), 0))} toplam
+              </span>
+            </h2>
+            <div className="rounded-[16px] overflow-hidden" style={{ border: "0.5px solid rgba(255,255,255,0.07)" }}>
+              <table className="w-full text-[13px] border-collapse">
+                <thead>
+                  <tr style={{ background: "#2C2C2E" }}>
+                    {["Kategori", "Kağıt(lar)", "Ayrılan", "Borsa", "Anlık Fiyat", "Hesaplanan Lot", "Tahmini Değer"].map(h => (
+                      <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {strategy.map((row, i) => {
+                    const syms = row.symbols.split(",").map(s => s.trim());
+                    const catColors: Record<string, string> = { Safe: "#30D158", Growth: "#0A84FF", Extreme: "#FF9F0A" };
+                    const catColor = catColors[row.category] ?? "#AEAEB2";
+                    // Split amount equally among symbols
+                    const amtPerSym = Number(row.amount_usd) / syms.length;
+                    return (
+                      <tr key={row.id} style={{ background: i % 2 === 0 ? "#141414" : "#1A1A1A", borderTop: "0.5px solid rgba(255,255,255,0.04)" }}>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] text-[12px] font-semibold"
+                            style={{ background: catColor + "18", color: catColor, border: `0.5px solid ${catColor}33` }}>
+                            %{row.category_pct} {row.category}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {syms.map(s => <SymbolBadge key={s} symbol={s} size={22} />)}
+                            <span className="text-[12px]" style={{ color: "#E5E5EA" }}>{syms.join(" + ")}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#E5E5EA" }}>${fmt(Number(row.amount_usd))}</td>
+                        <td className="px-4 py-3 text-[12px]" style={{ color: "#AEAEB2" }}>{row.broker}</td>
+                        <td className="px-4 py-3">
+                          {syms.map(s => (
+                            <div key={s} className="text-[12px] font-mono" style={{ color: stratPrices[s] ? "#E5E5EA" : "#3A3A3C" }}>
+                              {stratPrices[s] ? `${s}: $${fmt(stratPrices[s], 2)}` : `${s}: …`}
+                            </div>
+                          ))}
+                        </td>
+                        <td className="px-4 py-3">
+                          {syms.map(s => {
+                            const p = stratPrices[s];
+                            const lot = p ? amtPerSym / p : null;
+                            return (
+                              <div key={s} className="text-[12px] font-mono font-semibold" style={{ color: lot ? "#A29BFF" : "#3A3A3C" }}>
+                                {lot ? `${s}: ${fmt(lot, 4)}` : `${s}: …`}
+                              </div>
+                            );
+                          })}
+                        </td>
+                        <td className="px-4 py-3">
+                          {syms.map(s => {
+                            const p = stratPrices[s];
+                            const val = p ? amtPerSym : null;
+                            return (
+                              <div key={s} className="text-[12px] font-mono" style={{ color: "#E5E5EA" }}>
+                                {val ? `$${fmt(val)}` : "…"}
+                              </div>
+                            );
+                          })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-bold" style={{ color: "#E5E5EA" }}>
