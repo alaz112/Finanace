@@ -64,8 +64,6 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
 
     const cfg = PERIOD_CONFIG[period];
     const isIntraday = cfg.interval !== "1day" && cfg.interval !== "1week";
-    const toChartTime = (t: string): string | number =>
-      isIntraday ? Math.floor(new Date(t.replace(" ", "T") + "Z").getTime() / 1000) : t;
 
     const containerWidth = chartRef.current.getBoundingClientRect().width || chartRef.current.offsetWidth || 600;
 
@@ -114,7 +112,7 @@ export default function ChartPanel({ defaultSymbol, symbols }: Props) {
     fetchHistory(symbol, cfg.interval, cfg.outputsize)
       .then((data) => {
         const mapped = data.map((d) => ({
-          time: toChartTime(d.time) as any,
+          time: d.time as any,
           open: d.open,
           high: d.high,
           low: d.low,
