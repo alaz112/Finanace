@@ -227,7 +227,7 @@ export default function PositionsPage() {
             <table className="w-full text-[13px] border-collapse">
               <thead>
                 <tr style={{ background: "#2C2C2E" }}>
-                  {["Kategori", "Sembol", "Borsa", "Ayrılan", "Giriş Fiyatı", "Lot", "Anlık Fiyat", "Anlık Değer", "K / Z"].map(h => (
+                  {["Kategori", "Sembol", "Borsa", "Ayrılan", "Giriş Fiyatı", "Lot", "Anlık Fiyat", "K / Z"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>{h}</th>
                   ))}
                 </tr>
@@ -277,10 +277,6 @@ export default function PositionsPage() {
                       <td className="px-4 py-3 font-mono" style={{ color: "#E5E5EA" }}>
                         {loading ? <span style={{ color: "#3A3A3C" }}>…</span> : lp ? `$${fmt(lp, 4)}` : <span style={{ color: "#3A3A3C" }}>—</span>}
                       </td>
-                      {/* Anlık Değer */}
-                      <td className="px-4 py-3 font-mono font-semibold" style={{ color: currentVal ? "#E5E5EA" : "#3A3A3C" }}>
-                        {currentVal ? `$${fmt(currentVal)}` : "—"}
-                      </td>
                       {/* K/Z */}
                       <td className="px-4 py-3">
                         {pnl !== null && pnlPct !== null ? (
@@ -305,9 +301,15 @@ export default function PositionsPage() {
                 <tr style={{ background: "#2C2C2E", borderTop: "0.5px solid rgba(255,255,255,0.12)" }}>
                   <td colSpan={3} className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#636366" }}>TOPLAM</td>
                   <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#E5E5EA" }}>${fmt(totalAllocated)}</td>
-                  <td colSpan={3} />
-                  <td className="px-4 py-3 font-mono font-semibold" style={{ color: "#E5E5EA" }}>${fmt(totalCurrentValue)}</td>
+                  <td colSpan={2} />
                   <td className="px-4 py-3">
+                    <p className="font-bold font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>
+                      {totalPnl >= 0 ? "+" : ""}{fmt(totalPnl)} $
+                    </p>
+                    <p className="text-[11px] font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>
+                      {totalPnlPct >= 0 ? "+" : ""}{fmt(totalPnlPct)}%
+                    </p>
+                  </td>
                     <p className="font-bold font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>
                       {totalPnl >= 0 ? "+" : ""}{fmt(totalPnl)} $
                     </p>
