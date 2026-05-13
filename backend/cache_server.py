@@ -120,7 +120,7 @@ async def fetch_history_from_td(symbol: str, interval: str, outputsize: int) -> 
         r = await client.get(
             f"{TD_BASE}/time_series",
             params={"symbol": symbol, "interval": interval,
-                    "outputsize": outputsize, "apikey": TD_KEY}
+                    "outputsize": outputsize, "timezone": "UTC", "apikey": TD_KEY}
         )
     r.raise_for_status()
     data = r.json()

@@ -17,7 +17,7 @@ export async function GET(
   let res: Response;
   try {
     res = await fetch(
-      `${BASE}/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${API_KEY}`
+      `${BASE}/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&timezone=UTC&apikey=${API_KEY}`
     );
   } catch (e: any) {
     return Response.json(
