@@ -11,7 +11,7 @@ export async function GET(
   const API_KEY = process.env.TWELVE_DATA_API_KEY ?? "";
 
   // Twelve Data needs exchange=BIST for Borsa Istanbul stocks
-  const BIST_SYMBOLS = new Set(["BIST30","ASELS","THYAO","GARAN","AKBNK","ISCTR","EREGL","FROTO","KCHOL","TUPRS","BIMAS","TCELL","SISE","SAHOL","VAKBN","YKBNK","HALKB","PGSUS","TOASO","ARCLK","MGROS","EKGYO","KRDMD","PETKM","TKFEN","DOAS","KOZAL","SASA","VESTL","ULKER","YEOTK","KONTR"]);
+  const BIST_SYMBOLS = new Set(["ASELS","THYAO","GARAN","AKBNK","ISCTR","EREGL","FROTO","KCHOL","TUPRS","BIMAS","TCELL","SISE","SAHOL","VAKBN","YKBNK","HALKB","PGSUS","TOASO","ARCLK","MGROS","EKGYO","KRDMD","PETKM","TKFEN","DOAS","KOZAL","SASA","VESTL","ULKER","YEOTK","KONTR"]);
   const exchangeParam = BIST_SYMBOLS.has(sym.toUpperCase()) ? "&exchange=BIST" : "";
 
   try {
