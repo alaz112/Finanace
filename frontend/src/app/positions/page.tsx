@@ -310,13 +310,6 @@ export default function PositionsPage() {
                       {totalPnlPct >= 0 ? "+" : ""}{fmt(totalPnlPct)}%
                     </p>
                   </td>
-                    <p className="font-bold font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>
-                      {totalPnl >= 0 ? "+" : ""}{fmt(totalPnl)} $
-                    </p>
-                    <p className="text-[11px] font-mono" style={{ color: totalPnl >= 0 ? "#30D158" : "#FF453A" }}>
-                      {totalPnlPct >= 0 ? "+" : ""}{fmt(totalPnlPct)}%
-                    </p>
-                  </td>
                 </tr>
               </tfoot>
             </table>
