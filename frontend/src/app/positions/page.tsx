@@ -67,6 +67,7 @@ export default function PositionsPage() {
   const [livePrices, setLivePrices] = useState<Record<string, number | null>>({});
   const [loadingPrices, setLoadingPrices] = useState<Record<string, boolean>>({});
   const [entryPrices, setEntryPrices] = useState<Record<string, number>>({});
+  const lockedRef = useRef<Record<string, number>>(loadEntryPrices());
   const totalCapital = 5000;
 
   /* ── Auth ── */
@@ -75,7 +76,7 @@ export default function PositionsPage() {
   }, [router]);
 
   /* ── Load entry prices ── */
-  useEffect(() => { setEntryPrices(loadEntryPrices()); }, []);
+  useEffect(() => { setEntryPrices({ ...lockedRef.current }); }, []);
 
   /* ── Fetch strategy rows ── */
   useEffect(() => {
@@ -130,24 +131,24 @@ export default function PositionsPage() {
     return () => clearInterval(id);
   }, [fetchLivePrices]);
 
-  /* ── Auto-save live price as entry if not yet set ── */
+  /* ── Auto-save live price as entry if not yet set (locked forever after) ── */
   useEffect(() => {
     if (!slots.length) return;
-    const ep = loadEntryPrices();
     let changed = false;
     for (const [sym, price] of Object.entries(livePrices)) {
-      if (price !== null && ep[sym] === undefined) {
-        ep[sym] = price;
+      if (price !== null && lockedRef.current[sym] === undefined) {
+        lockedRef.current[sym] = price;
         changed = true;
       }
     }
     if (changed) {
-      setEntryPrices({ ...ep });
-      saveEntryPrices(ep);
+      setEntryPrices({ ...lockedRef.current });
+      saveEntryPrices(lockedRef.current);
     }
   }, [livePrices, slots]);
 
   function resetEntryPrices() {
+    lockedRef.current = {};
     localStorage.removeItem(ENTRY_KEY);
     setEntryPrices({});
   }
