@@ -31,6 +31,16 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           <Link
+            href="/positions"
+            className="flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all hover:bg-black/5"
+            style={{ color: "#5856D6" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            </svg>
+            Pozisyonlar
+          </Link>
+          <Link
             href="/strategies"
             className="flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all hover:bg-black/5"
             style={{ color: "#5856D6" }}
