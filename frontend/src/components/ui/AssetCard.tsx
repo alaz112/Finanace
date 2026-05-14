@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRealtimePrice } from "@/hooks/useRealtimePrice";
 import AnalysisModal from "@/components/ui/AnalysisModal";
 
@@ -91,6 +91,14 @@ export default function AssetCard({ symbol }: { symbol: string }) {
   const { price, direction } = useRealtimePrice(symbol);
   const meta = META[symbol] ?? { name: symbol, ticker: symbol, color: "#007AFF", bg: "#E5F0FF", Icon: IconChip };
   const [showModal, setShowModal] = useState(false);
+  const [ind, setInd] = useState<Indicators>({ rsi: null, hist: null, volume: null });
+
+  useEffect(() => {
+    fetch(`/api/indicators/${encodeURIComponent(symbol)}`)
+      .then(r => r.json())
+      .then(d => setInd({ rsi: d.rsi, hist: d.hist, volume: d.volume }))
+      .catch(() => {});
+  }, [symbol]);
 
   const isUp   = direction === "up";
   const isDown = direction === "down";
@@ -156,6 +164,39 @@ export default function AssetCard({ symbol }: { symbol: string }) {
         ) : (
           <div className="h-7 w-28 rounded-lg bg-gray-100 animate-pulse" />
         )}
+      </div>
+
+      {/* Mini İndikatörler */}
+      <div className="flex items-center justify-between pt-1 border-t border-black/5">
+        {/* RSI */}
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "#8E8E93" }}>RSI</span>
+          {ind.rsi !== null ? (
+            <span className="text-[12px] font-bold font-mono"
+              style={{ color: ind.rsi >= 70 ? "#FF3B30" : ind.rsi <= 30 ? "#30D158" : "#1D1D1F" }}>
+              {ind.rsi.toFixed(1)}
+            </span>
+          ) : <div className="h-4 w-8 rounded bg-gray-100 animate-pulse" />}
+        </div>
+        {/* MACD Hist */}
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "#8E8E93" }}>MACD</span>
+          {ind.hist !== null ? (
+            <span className="text-[12px] font-bold font-mono"
+              style={{ color: ind.hist >= 0 ? "#34C759" : "#FF3B30" }}>
+              {ind.hist >= 0 ? "▲" : "▼"} {Math.abs(ind.hist).toFixed(2)}
+            </span>
+          ) : <div className="h-4 w-12 rounded bg-gray-100 animate-pulse" />}
+        </div>
+        {/* Volume */}
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "#8E8E93" }}>VOL</span>
+          {ind.volume !== null ? (
+            <span className="text-[12px] font-bold font-mono" style={{ color: "#1D1D1F" }}>
+              {fmtVol(ind.volume)}
+            </span>
+          ) : <div className="h-4 w-10 rounded bg-gray-100 animate-pulse" />}
+        </div>
       </div>
 
     </div>

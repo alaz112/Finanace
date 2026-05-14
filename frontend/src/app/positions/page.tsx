@@ -127,7 +127,7 @@ export default function PositionsPage() {
 
   useEffect(() => {
     fetchLivePrices();
-    const id = setInterval(fetchLivePrices, 30_000);
+    const id = setInterval(fetchLivePrices, 60_000);
     return () => clearInterval(id);
   }, [fetchLivePrices]);
 
